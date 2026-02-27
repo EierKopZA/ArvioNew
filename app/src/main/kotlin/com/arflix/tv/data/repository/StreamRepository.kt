@@ -621,7 +621,7 @@ class StreamRepository @Inject constructor(
 
     // Stream source requests — generous timeouts to accommodate slow wifi and
     // debrid-backed addons (Torrentio, MediaFusion, etc.) that resolve remotely.
-    private val ADDON_TIMEOUT_MS = 15_000L
+    private val ADDON_TIMEOUT_MS = 20_000L
     // Subtitles should not block playback but need enough time on slow connections.
     private val SUBTITLE_TIMEOUT_MS = 8_000L
     // If addons return nothing, allow Xtream VOD lookup to recover playback.
@@ -1113,7 +1113,7 @@ class StreamRepository @Inject constructor(
     }
 
     // Timeout for resolving a single stream URL (redirect chains, debrid resolvers).
-    private val STREAM_RESOLUTION_TIMEOUT_MS = 12_000L
+    private val STREAM_RESOLUTION_TIMEOUT_MS = 15_000L
 
     /**
      * Resolve a single stream for playback - with timeout to prevent hanging forever

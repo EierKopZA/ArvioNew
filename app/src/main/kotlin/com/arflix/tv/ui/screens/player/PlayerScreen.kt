@@ -339,27 +339,27 @@ fun PlayerScreen(
 
     // ExoPlayer - configured for maximum codec compatibility and smooth streaming
     val exoPlayer = remember {
-        // Balanced startup buffering: lowered bufferForPlaybackMs from 7000 to 3500
-        // for faster time-to-first-frame while keeping deep buffers for stability.
+        // Balanced buffers: enough for torrent streams (variable speed) while preventing OOM.
+        // maxBuffer 120s (was 240s), minBuffer 30s (was 45s), backBuffer 15s (was 20s).
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                45_000,
-                240_000,
-                3_500,
-                12_000
+                30_000,    // minBufferMs — keep refilling once below 30s
+                120_000,   // maxBufferMs — 2 min ahead (was 4 min, reduced for OOM safety)
+                2_500,     // bufferForPlaybackMs — start playing after 2.5s buffered
+                5_000      // bufferForPlaybackAfterRebufferMs — 5s after rebuffer
             )
             .setTargetBufferBytes(C.LENGTH_UNSET)
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(20_000, true)
+            .setBackBuffer(15_000, true)
             .build()
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .setRenderersFactory(
                 DefaultRenderersFactory(context)
-                    // Prefer hardware decoders first, use extension decoders as fallback.
-                    // This is more stable for heavy 4K remux streams on TV devices.
-                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                    // Use hardware decoders first; extension decoders only as fallback.
+                    // MODE_PREFER forces software decoding which is slow/jumpy on TV.
+                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
                     // Enable fallback decoders for any format issues
                     .setEnableDecoderFallback(true)
             )

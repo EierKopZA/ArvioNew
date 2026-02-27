@@ -656,6 +656,8 @@ class DetailsViewModel @Inject constructor(
     fun refreshAfterPlayerReturn() {
         val tmdbId = currentMediaId
         if (tmdbId == 0) return
+        // Don't run during initial load — would overwrite seasonProgress with empty data
+        if (_uiState.value.isLoading) return
         val mediaType = currentMediaType
 
         viewModelScope.launch {
@@ -715,14 +717,16 @@ class DetailsViewModel @Inject constructor(
                 null
             }
 
-            // Single atomic state update
-            _uiState.value = currentState.copy(
-                item = updatedItem ?: currentState.item,
+            // Read latest state to avoid overwriting concurrent updates (e.g. seasonProgress)
+            val latestState = _uiState.value
+            _uiState.value = latestState.copy(
+                item = updatedItem ?: latestState.item,
                 episodes = updatedEpisodes,
-                seasonProgress = updatedProgress,
-                playSeason = playTarget?.season ?: currentState.playSeason,
-                playEpisode = playTarget?.episode ?: currentState.playEpisode,
-                playLabel = playTarget?.label ?: currentState.playLabel,
+                // Only update seasonProgress if we actually computed new data; preserve existing otherwise
+                seasonProgress = if (updatedProgress !== currentState.seasonProgress) updatedProgress else latestState.seasonProgress,
+                playSeason = playTarget?.season ?: latestState.playSeason,
+                playEpisode = playTarget?.episode ?: latestState.playEpisode,
+                playLabel = playTarget?.label ?: latestState.playLabel,
                 playPositionMs = playTarget?.positionMs ?: 0L
             )
         }

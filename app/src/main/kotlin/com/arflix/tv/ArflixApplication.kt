@@ -61,7 +61,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             .okHttpClient(OkHttpProvider.client)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)  // Performance: Increased cache for TV
+                    .maxSizePercent(0.15)  // Reduced from 25% to 15% to prevent OOM during playback
                     .build()
             }
             .diskCache {

@@ -1425,11 +1425,17 @@ class HomeViewModel @Inject constructor(
                 "${entry.media_type}:${entry.show_tmdb_id}:${entry.season ?: -1}:${entry.episode ?: -1}"
             }.mapNotNull { entry ->
                 val mediaType = if (entry.media_type == "tv") MediaType.TV else MediaType.MOVIE
+                val storedPct = (entry.progress * 100f).toInt()
+                val derivedPct = if (storedPct <= 0 && entry.duration_seconds > 0 && entry.position_seconds > 0) {
+                    ((entry.position_seconds.toFloat() / entry.duration_seconds.toFloat()) * 100f).toInt()
+                } else {
+                    storedPct
+                }
                 ContinueWatchingItem(
                     id = entry.show_tmdb_id,
                     title = entry.title ?: return@mapNotNull null,
                     mediaType = mediaType,
-                    progress = (entry.progress * 100f).toInt().coerceIn(0, 100),
+                    progress = derivedPct.coerceIn(0, 100),
                     resumePositionSeconds = entry.position_seconds.coerceAtLeast(0L),
                     durationSeconds = entry.duration_seconds.coerceAtLeast(0L),
                     season = entry.season,
@@ -1469,8 +1475,15 @@ class HomeViewModel @Inject constructor(
                 if (match == null) {
                     item
                 } else {
+                    // Derive progress from position/duration when stored progress is 0
+                    val storedProgress = (match.progress * 100f).toInt()
+                    val derivedProgress = if (storedProgress <= 0 && match.duration_seconds > 0 && match.position_seconds > 0) {
+                        ((match.position_seconds.toFloat() / match.duration_seconds.toFloat()) * 100f).toInt()
+                    } else {
+                        storedProgress
+                    }
                     item.copy(
-                        progress = (match.progress * 100f).toInt().coerceIn(0, 100),
+                        progress = derivedProgress.coerceIn(0, 100),
                         resumePositionSeconds = match.position_seconds.coerceAtLeast(0L),
                         durationSeconds = match.duration_seconds.coerceAtLeast(0L),
                         season = item.season ?: match.season,

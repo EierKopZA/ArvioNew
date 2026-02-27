@@ -104,7 +104,7 @@ class IptvRepository @Inject constructor(
     private var cachedChannels: List<IptvChannel> = emptyList()
 
     @Volatile
-    private var cachedNowNext: Map<String, IptvNowNext> = emptyMap()
+    private var cachedNowNext: ConcurrentHashMap<String, IptvNowNext> = ConcurrentHashMap()
 
     @Volatile
     private var cachedPlaylistAt: Long = 0L
@@ -540,7 +540,7 @@ class IptvRepository @Inject constructor(
             val cachedFromDisk = if (cachedChannels.isEmpty()) readCache(config) else null
             if (cachedFromDisk != null) {
                 cachedChannels = cachedFromDisk.channels
-                cachedNowNext = cachedFromDisk.nowNext
+                cachedNowNext = ConcurrentHashMap(cachedFromDisk.nowNext)
                 cachedPlaylistAt = cachedFromDisk.loadedAtEpochMs
                 cachedEpgAt = cachedFromDisk.loadedAtEpochMs
             }
@@ -609,14 +609,12 @@ class IptvRepository @Inject constructor(
                         if (parsed != null && parsedHasData) {
                             shortEpgResult = parsed
                             // Provide immediate results: merge short EPG with cached data (no stale removal)
-                            val merged = cachedNowNext.toMutableMap()
-                            merged.putAll(parsed) // Short EPG data takes priority (fresher)
-                            resolvedNowNext = merged
-                            cachedNowNext = merged
+                            cachedNowNext.putAll(parsed) // Short EPG data takes priority (fresher)
+                            resolvedNowNext = cachedNowNext
                             cachedEpgAt = System.currentTimeMillis()
                             epgUpdated = true
                             resolved = true
-                            System.err.println("[EPG] Xtream short EPG SUCCESS: ${parsed.size} fresh + ${cachedNowNext.size - parsed.size} cached = ${merged.size} total")
+                            System.err.println("[EPG] Xtream short EPG SUCCESS: ${parsed.size} fresh, ${cachedNowNext.size} total cached")
                         }
                     } else {
                         System.err.println("[EPG] Xtream short EPG FAILED: ${shortEpgAttempt.exceptionOrNull()?.message}")
@@ -640,7 +638,7 @@ class IptvRepository @Inject constructor(
                             val parsedHasPrograms = hasAnyProgramData(parsed)
                             if (parsedHasPrograms || index == epgCandidatesToTry.lastIndex) {
                                 // Merge: XMLTV as base, then overlay short EPG (fresher per-channel data)
-                                val merged = parsed.toMutableMap()
+                                val merged = ConcurrentHashMap(parsed)
                                 shortEpgResult?.let { merged.putAll(it) } // Short EPG wins for channels it covers
                                 resolvedNowNext = merged
                                 cachedNowNext = merged
@@ -660,7 +658,7 @@ class IptvRepository @Inject constructor(
 
                 if (!resolved) {
                     // Throttle repeated failures to avoid refetching every open.
-                    cachedNowNext = emptyMap()
+                    cachedNowNext = ConcurrentHashMap()
                     cachedEpgAt = System.currentTimeMillis()
                     epgUpdated = true
                 }
@@ -721,7 +719,7 @@ class IptvRepository @Inject constructor(
 
                 val cached = readCache(config) ?: return@withLock
                 cachedChannels = cached.channels
-                cachedNowNext = cached.nowNext
+                cachedNowNext = ConcurrentHashMap(cached.nowNext)
                 cachedPlaylistAt = cached.loadedAtEpochMs
                 cachedEpgAt = cached.loadedAtEpochMs
             }
@@ -753,7 +751,7 @@ class IptvRepository @Inject constructor(
                 if (cachedChannels.isEmpty()) {
                     val cached = readCache(config) ?: return@withLock null
                     cachedChannels = cached.channels
-                    cachedNowNext = cached.nowNext
+                    cachedNowNext = ConcurrentHashMap(cached.nowNext)
                     cachedPlaylistAt = cached.loadedAtEpochMs
                     cachedEpgAt = cached.loadedAtEpochMs
                 }
@@ -864,10 +862,8 @@ class IptvRepository @Inject constructor(
         }
         if (result.isEmpty()) return null
 
-        // Write back re-derived entries into cachedNowNext
-        val merged = cached.toMutableMap()
-        merged.putAll(result)
-        cachedNowNext = merged
+        // Write back re-derived entries into cachedNowNext (in-place, no copy)
+        cachedNowNext.putAll(result)
 
         return result
     }
@@ -937,10 +933,8 @@ class IptvRepository @Inject constructor(
             val freshNowNext = buildNowNextFromXtreamListings(allListings, epgIdToChannelIds, streamIdToChannelIds)
             if (freshNowNext.isEmpty()) return@withContext null
 
-            // Merge into cache
-            val merged = cachedNowNext.toMutableMap()
-            merged.putAll(freshNowNext)
-            cachedNowNext = merged
+            // Merge into cache (in-place, no copy)
+            cachedNowNext.putAll(freshNowNext)
             cachedEpgAt = System.currentTimeMillis()
 
             System.err.println("[EPG-Refresh] Updated ${freshNowNext.size} channels in cache")
@@ -950,7 +944,7 @@ class IptvRepository @Inject constructor(
 
     fun invalidateCache() {
         cachedChannels = emptyList()
-        cachedNowNext = emptyMap()
+        cachedNowNext = ConcurrentHashMap()
         cachedPlaylistAt = 0L
         cachedEpgAt = 0L
         discoveredM3uEpgUrl = null
@@ -1776,7 +1770,10 @@ class IptvRepository @Inject constructor(
         allowNetwork: Boolean = true
     ): StreamSource? {
         return withContext(Dispatchers.IO) {
-            val creds = resolveXtreamCredentials(observeConfig().first().m3uUrl) ?: return@withContext null
+            val config = observeConfig().first()
+            val creds = resolveXtreamCredentials(config.epgUrl)
+                ?: resolveXtreamCredentials(config.m3uUrl)
+                ?: return@withContext null
             val vod = getXtreamVodStreams(creds, allowNetwork, fast = true)
             if (vod.isEmpty()) return@withContext null
 
@@ -1865,10 +1862,10 @@ class IptvRepository @Inject constructor(
         allowNetwork: Boolean = true
     ): StreamSource? {
         return withContext(Dispatchers.IO) {
-            val creds = resolveXtreamCredentials(observeConfig().first().m3uUrl)
-            if (creds == null) {
-                return@withContext null
-            }
+            val config = observeConfig().first()
+            val creds = resolveXtreamCredentials(config.epgUrl)
+                ?: resolveXtreamCredentials(config.m3uUrl)
+                ?: return@withContext null
             val normalizedTitle = normalizeLookupText(title)
             val normalizedImdb = normalizeImdbId(imdbId)
             val normalizedTmdb = normalizeTmdbId(tmdbId)
@@ -1969,7 +1966,10 @@ class IptvRepository @Inject constructor(
 
     suspend fun warmXtreamVodCachesIfPossible() {
         withContext(Dispatchers.IO) {
-            val creds = resolveXtreamCredentials(observeConfig().first().m3uUrl) ?: return@withContext
+            val config = observeConfig().first()
+            val creds = resolveXtreamCredentials(config.epgUrl)
+                ?: resolveXtreamCredentials(config.m3uUrl)
+                ?: return@withContext
             runCatching {
                 loadXtreamVodStreams(creds)
                 loadXtreamSeriesList(creds)
@@ -1988,7 +1988,10 @@ class IptvRepository @Inject constructor(
         tmdbId: Int? = null
     ) {
         withContext(Dispatchers.IO) {
-            val creds = resolveXtreamCredentials(observeConfig().first().m3uUrl) ?: return@withContext
+            val config = observeConfig().first()
+            val creds = resolveXtreamCredentials(config.epgUrl)
+                ?: resolveXtreamCredentials(config.m3uUrl)
+                ?: return@withContext
             val activeProfileId = runCatching { profileManager.activeProfileId.first() }.getOrDefault("default")
             val providerKey = "$activeProfileId|${xtreamCacheKey(creds)}"
             runCatching {
@@ -2013,7 +2016,10 @@ class IptvRepository @Inject constructor(
         tmdbId: Int? = null
     ) {
         withContext(Dispatchers.IO) {
-            val creds = resolveXtreamCredentials(observeConfig().first().m3uUrl) ?: return@withContext
+            val config = observeConfig().first()
+            val creds = resolveXtreamCredentials(config.epgUrl)
+                ?: resolveXtreamCredentials(config.m3uUrl)
+                ?: return@withContext
             val activeProfileId = runCatching { profileManager.activeProfileId.first() }.getOrDefault("default")
             val providerKey = "$activeProfileId|${xtreamCacheKey(creds)}"
             runCatching {
@@ -2524,9 +2530,8 @@ class IptvRepository @Inject constructor(
     }
 
     private fun resolveXtreamCredentials(url: String): XtreamCredentials? {
+        if (url.isBlank()) return null
         val parsed = url.toHttpUrlOrNull() ?: return null
-        val path = parsed.encodedPath.lowercase(Locale.US)
-        if (!(path.endsWith("/get.php") || path.endsWith("/xmltv.php") || path.endsWith("/player_api.php"))) return null
         val username = parsed.queryParameter("username")?.trim()?.ifBlank { null }
             ?: parsed.queryParameter("user")?.trim()?.ifBlank { null }
             ?: parsed.queryParameter("uname")?.trim()?.ifBlank { null }
@@ -2536,7 +2541,22 @@ class IptvRepository @Inject constructor(
             ?: parsed.queryParameter("pwd")?.trim()?.ifBlank { null }
             ?: ""
         if (username.isBlank() || password.isBlank()) return null
-        val baseUrl = parsed.toXtreamBaseUrl()
+        // Accept any URL with username/password params; derive baseUrl from scheme+host+port
+        val path = parsed.encodedPath.lowercase(Locale.US)
+        val knownXtreamPath = path.endsWith("/get.php") || path.endsWith("/xmltv.php") || path.endsWith("/player_api.php")
+        val baseUrl = if (knownXtreamPath) {
+            parsed.toXtreamBaseUrl()
+        } else {
+            // Derive from scheme + host + port for non-standard paths
+            buildString {
+                append(parsed.scheme)
+                append("://")
+                append(parsed.host)
+                if (parsed.port != if (parsed.scheme == "https") 443 else 80) {
+                    append(":${parsed.port}")
+                }
+            }
+        }
         return XtreamCredentials(baseUrl, username, password)
     }
 

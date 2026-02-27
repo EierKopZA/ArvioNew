@@ -1326,7 +1326,13 @@ class PlayerViewModel @Inject constructor(
     fun saveProgress(position: Long, duration: Long, progressPercent: Int, isPlaying: Boolean, playbackState: Int) {
         if (duration <= 0) return
 
-        if (progressSaveJob?.isActive == true) return
+        // On pause/stop, always save (cancel any in-flight periodic save).
+        // During playback, skip if a previous save is still running (debounce).
+        if (!isPlaying || playbackState == Player.STATE_ENDED) {
+            progressSaveJob?.cancel()
+        } else if (progressSaveJob?.isActive == true) {
+            return
+        }
         progressSaveJob = viewModelScope.launch(Dispatchers.IO) {
             val currentTime = System.currentTimeMillis()
             val progressFraction = (progressPercent / 100f).coerceIn(0f, 1f)
@@ -1359,8 +1365,9 @@ class PlayerViewModel @Inject constructor(
                 }
                 lastScrobbleTime = currentTime
             } else if (isPlaying && currentTime - lastScrobbleTime >= SCROBBLE_UPDATE_INTERVAL_MS) {
+                // Periodic scrobble update while playing (use scrobbleStart, not pause)
                 try {
-                    traktRepository.scrobblePause(
+                    traktRepository.scrobbleStart(
                         mediaType = currentMediaType,
                         tmdbId = currentMediaId,
                         progress = progressPercent.toFloat(),
@@ -1368,7 +1375,7 @@ class PlayerViewModel @Inject constructor(
                         episode = currentEpisode
                     )
                 } catch (e: Exception) {
-                    // Scrobble pause failed
+                    // Scrobble update failed
                 }
                 lastScrobbleTime = currentTime
             }
