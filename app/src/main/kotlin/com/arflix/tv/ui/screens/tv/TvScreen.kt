@@ -247,7 +247,8 @@ fun TvScreen(
     val exoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(12_000, 60_000, 2_000, 4_000)
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setTargetBufferBytes(50 * 1024 * 1024) // 50 MB cap for IPTV (live streams need less buffer)
+            .setPrioritizeTimeOverSizeThresholds(false) // respect byte limit over time limit
             .setBackBuffer(8_000, true)
             .build()
 

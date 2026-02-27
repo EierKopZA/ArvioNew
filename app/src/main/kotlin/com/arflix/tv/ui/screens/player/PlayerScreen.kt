@@ -339,18 +339,19 @@ fun PlayerScreen(
 
     // ExoPlayer - configured for maximum codec compatibility and smooth streaming
     val exoPlayer = remember {
-        // Balanced buffers: enough for torrent streams (variable speed) while preventing OOM.
-        // maxBuffer 120s (was 240s), minBuffer 30s (was 45s), backBuffer 15s (was 20s).
+        // Conservative buffers to prevent OOM on TV devices (402 MB heap limit).
+        // Cap buffer by BOTH time and size so high-bitrate streams (4K remux)
+        // cannot blow past available memory.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 30_000,    // minBufferMs — keep refilling once below 30s
-                120_000,   // maxBufferMs — 2 min ahead (was 4 min, reduced for OOM safety)
+                60_000,    // maxBufferMs — 1 min ahead (reduced from 2 min for OOM safety)
                 2_500,     // bufferForPlaybackMs — start playing after 2.5s buffered
                 5_000      // bufferForPlaybackAfterRebufferMs — 5s after rebuffer
             )
-            .setTargetBufferBytes(C.LENGTH_UNSET)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(15_000, true)
+            .setTargetBufferBytes(100 * 1024 * 1024) // 100 MB hard cap (prevents OOM on high-bitrate streams)
+            .setPrioritizeTimeOverSizeThresholds(false) // respect byte limit over time limit
+            .setBackBuffer(10_000, true)
             .build()
 
         ExoPlayer.Builder(context)
