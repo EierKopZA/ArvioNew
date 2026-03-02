@@ -7,6 +7,13 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+## [1.8.3] - 2026-03-02
+
+### Fixed
+- Resolved Google Play rejection: when no streaming addons are configured, the app now shows a friendly "Addon Setup Required" guide instead of a playback error.
+- Source selector on Details page shows "No Streaming Addons" with setup instructions instead of generic "No sources found".
+- Auto-play no longer navigates to the player when no sources are available — shows the source selector with guidance instead.
+
 ## [1.8.2] - 2026-03-02
 
 ### Changed

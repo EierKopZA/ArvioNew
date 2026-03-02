@@ -24,8 +24,8 @@ android {
         // Lower minSdk to maximize compatibility and avoid "There was a problem parsing the package".
         minSdk = 21
         targetSdk = 34
-        versionCode = 182
-        versionName = "1.8.2"
+        versionCode = 183
+        versionName = "1.8.3"
 
         // Support both 32-bit and 64-bit devices (required for Google Play since 2019)
         ndk {

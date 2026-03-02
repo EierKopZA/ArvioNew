@@ -55,6 +55,7 @@ data class DetailsUiState(
     val streams: List<StreamSource> = emptyList(),
     val subtitles: List<Subtitle> = emptyList(),
     val isLoadingStreams: Boolean = false,
+    val hasStreamingAddons: Boolean = true,
     val isInWatchlist: Boolean = false,
     // Toast
     val toastMessage: String? = null,
@@ -934,10 +935,13 @@ class DetailsViewModel @Inject constructor(
                 val mergedStreams = (filteredStreams + existingVod)
                     .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
                 if (!isCurrentRequest()) return@launch
+                val addonCount = streamRepository.installedAddons.first()
+                    .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE }
                 _uiState.value = _uiState.value.copy(
                     isLoadingStreams = false,
                     streams = mergedStreams,
-                    subtitles = result.subtitles
+                    subtitles = result.subtitles,
+                    hasStreamingAddons = addonCount > 0
                 )
             } catch (e: Exception) {
                 if (!isCurrentRequest()) return@launch

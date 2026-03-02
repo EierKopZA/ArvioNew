@@ -54,6 +54,7 @@ data class PlayerUiState(
     val preferredAudioLanguage: String = "en",
     val frameRateMatchingMode: String = "Off",
     val error: String? = null,
+    val isSetupError: Boolean = false, // true when error is due to missing addons (shows friendly guide instead of red error)
     // Skip intro/recap
     val activeSkipInterval: SkipInterval? = null,
     val skipIntervalDismissed: Boolean = false
@@ -362,16 +363,20 @@ class PlayerViewModel @Inject constructor(
                 val resumeData = resumeDataDeferred.await()
 
                 // Determine appropriate error message
-                val errorMessage = if (mergedStreams.isEmpty()) {
-                    val streamingAddonsCount = streamRepository.installedAddons.first()
+                val streamingAddonsCount = if (mergedStreams.isEmpty()) {
+                    streamRepository.installedAddons.first()
                         .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE }
+                } else -1
 
+                val errorMessage = if (mergedStreams.isEmpty()) {
                     if (streamingAddonsCount == 0) {
-                        "No streaming addons configured. Go to Settings > Addons to add Torrentio or another streaming addon."
+                        "No streaming addons configured.\n\nGo to Settings \u2192 Addons to add a streaming addon like Torrentio, then come back and try again."
                     } else {
                         "No streams found for this content. The addons may not have sources for this title."
                     }
                 } else null
+
+                val isSetup = mergedStreams.isEmpty() && streamingAddonsCount == 0
 
                 // Update UI with sorted streams
                 _uiState.value = _uiState.value.copy(
@@ -380,7 +385,8 @@ class PlayerViewModel @Inject constructor(
                     streams = mergedStreams,
                     subtitles = result.subtitles,
                     savedPosition = resumeData.positionMs,
-                    error = errorMessage
+                    error = errorMessage,
+                    isSetupError = isSetup
                 )
 
                 // Auto-select: respect explicit navigation preference, otherwise choose

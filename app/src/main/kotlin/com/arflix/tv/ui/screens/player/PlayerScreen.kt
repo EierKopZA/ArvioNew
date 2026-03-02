@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeMute
 import androidx.compose.material.icons.filled.VolumeUp
@@ -1168,17 +1169,22 @@ fun PlayerScreen(
                 if (event.type == KeyEventType.KeyDown) {
                     // Handle error modal
                     if (uiState.error != null) {
+                        val maxButtons = if (uiState.isSetupError) 0 else 1 // setup=1 button, error=2 buttons
                         return@onKeyEvent when (event.key) {
                             Key.DirectionLeft -> {
                                 if (errorModalFocusIndex > 0) errorModalFocusIndex--
                                 true
                             }
                             Key.DirectionRight -> {
-                                if (errorModalFocusIndex < 1) errorModalFocusIndex++
+                                if (errorModalFocusIndex < maxButtons) errorModalFocusIndex++
                                 true
                             }
                             Key.Enter, Key.DirectionCenter -> {
-                                if (errorModalFocusIndex == 0) viewModel.retry() else onBack()
+                                if (uiState.isSetupError) {
+                                    onBack()
+                                } else {
+                                    if (errorModalFocusIndex == 0) viewModel.retry() else onBack()
+                                }
                                 true
                             }
                             Key.Back, Key.Escape -> {
@@ -1973,6 +1979,7 @@ fun PlayerScreen(
             streams = uiState.streams,
             selectedStream = uiState.selectedStream,
             isLoading = uiState.isLoadingStreams,
+            hasStreamingAddons = !uiState.isSetupError,
             title = uiState.title,
             subtitle = if (seasonNumber != null && episodeNumber != null) {
                 "S$seasonNumber E$episodeNumber"
@@ -2081,12 +2088,14 @@ fun PlayerScreen(
             )
         }
 
-        // Error modal
+        // Error modal — friendly setup guide for no-addons, red error for actual playback failures
         AnimatedVisibility(
             visible = uiState.error != null,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
+            val isSetup = uiState.isSetupError
+            val accentColor = if (isSetup) Color(0xFF3B82F6) else Color(0xFFEF4444) // blue vs red
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2095,22 +2104,22 @@ fun PlayerScreen(
             ) {
                 Column(
                     modifier = Modifier
-                        .width(450.dp)
+                        .width(480.dp)
                         .background(Color(0xFF1A1A1A), RoundedCornerShape(16.dp))
-                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .border(1.dp, accentColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                         .padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         modifier = Modifier
                             .size(72.dp)
-                            .background(Color(0xFFEF4444).copy(alpha = 0.15f), CircleShape),
+                            .background(accentColor.copy(alpha = 0.15f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ErrorOutline,
-                            contentDescription = "Error",
-                            tint = Color(0xFFEF4444),
+                            imageVector = if (isSetup) Icons.Default.Settings else Icons.Default.ErrorOutline,
+                            contentDescription = if (isSetup) "Setup" else "Error",
+                            tint = accentColor,
                             modifier = Modifier.size(40.dp)
                         )
                     }
@@ -2118,33 +2127,48 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Text(
-                        text = "Playback Error",
+                        text = if (isSetup) "Addon Setup Required" else "Playback Error",
                         style = ArflixTypography.sectionTitle,
                         color = TextPrimary
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
                         text = uiState.error ?: "An unknown error occurred",
                         style = ArflixTypography.body,
-                        color = TextSecondary
+                        color = TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (isSetup) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "ARVIO uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played.",
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.7f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(32.dp))
 
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        ErrorButton(
-                            text = "TRY AGAIN",
-                            icon = Icons.Default.Refresh,
-                            isFocused = errorModalFocusIndex == 0,
-                            isPrimary = true,
-                            onClick = { viewModel.retry() }
-                        )
+                        if (!isSetup) {
+                            ErrorButton(
+                                text = "TRY AGAIN",
+                                icon = Icons.Default.Refresh,
+                                isFocused = errorModalFocusIndex == 0,
+                                isPrimary = true,
+                                onClick = { viewModel.retry() }
+                            )
+                        }
                         ErrorButton(
                             text = "GO BACK",
-                            isFocused = errorModalFocusIndex == 1,
-                            isPrimary = false,
+                            isFocused = if (isSetup) errorModalFocusIndex == 0 else errorModalFocusIndex == 1,
+                            isPrimary = isSetup,
                             onClick = onBack
                         )
                     }

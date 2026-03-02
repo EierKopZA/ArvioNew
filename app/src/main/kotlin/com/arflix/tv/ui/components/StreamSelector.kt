@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
@@ -94,6 +95,7 @@ fun StreamSelector(
     isLoading: Boolean = false,
     title: String = "",
     subtitle: String = "",
+    hasStreamingAddons: Boolean = true,
     onSelect: (StreamSource) -> Unit = {},
     onClose: () -> Unit = {}
 ) {
@@ -441,32 +443,38 @@ fun StreamSelector(
                                     .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
                                     .padding(40.dp)
                             ) {
+                                val iconColor = if (!hasStreamingAddons) Color(0xFF3B82F6) else TextSecondary.copy(alpha = 0.5f)
                                 Box(
                                     modifier = Modifier
                                         .size(64.dp)
-                                        .background(Color.White.copy(alpha = 0.05f), CircleShape),
+                                        .background(iconColor.copy(alpha = 0.1f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Cloud,
+                                        imageVector = if (!hasStreamingAddons) Icons.Default.Settings else Icons.Default.Cloud,
                                         contentDescription = null,
-                                        tint = TextSecondary.copy(alpha = 0.5f),
+                                        tint = iconColor,
                                         modifier = Modifier.size(32.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "No sources found",
+                                    text = if (!hasStreamingAddons) "No Streaming Addons" else "No sources found",
                                     style = ArflixTypography.body.copy(
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Medium
                                     ),
                                     color = TextSecondary
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Try adding more addons",
+                                    text = if (!hasStreamingAddons)
+                                        "Go to Settings \u2192 Addons to add\na streaming addon like Torrentio"
+                                    else
+                                        "Try adding more addons",
                                     style = ArflixTypography.caption.copy(fontSize = 12.sp),
-                                    color = TextSecondary.copy(alpha = 0.5f)
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
                             }
                         }

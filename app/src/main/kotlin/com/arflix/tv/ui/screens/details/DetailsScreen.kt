@@ -232,17 +232,10 @@ fun DetailsScreen(
                 showStreamSelector = true
             }
             else -> {
-                onNavigateToPlayer(
-                    mediaType,
-                    mediaId,
-                    request.season,
-                    request.episode,
-                    uiState.imdbId,
-                    null,
-                    null,
-                    null,
-                    request.startPositionMs
-                )
+                // When no streams found, show the StreamSelector with its
+                // friendly "no addons" / "no sources" empty state instead of
+                // navigating to the player which would show a scary error.
+                showStreamSelector = true
             }
         }
         pendingAutoPlayRequest = null
@@ -593,6 +586,7 @@ fun DetailsScreen(
             streams = uiState.streams,
             selectedStream = null,
             isLoading = uiState.isLoadingStreams,
+            hasStreamingAddons = uiState.hasStreamingAddons,
             onSelect = { stream ->
                 showStreamSelector = false
                 val ep = uiState.episodes.getOrNull(episodeIndex)
