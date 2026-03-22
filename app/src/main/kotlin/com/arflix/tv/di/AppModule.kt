@@ -1,7 +1,6 @@
 package com.arflix.tv.di
 
 import android.content.Context
-import coil.Coil
 import coil.ImageLoader
 import com.arflix.tv.data.api.AniSkipApi
 import com.arflix.tv.data.api.ArmApi
@@ -35,10 +34,19 @@ object AppModule {
 
     @Provides
     @Singleton
+    @Named("coilImage")
+    fun provideImageOkHttpClient(
+        @ApplicationContext _context: Context
+    ): OkHttpClient {
+        return OkHttpProvider.coilClient
+    }
+
+    @Provides
+    @Singleton
     fun provideImageLoader(
         @ApplicationContext context: Context
     ): ImageLoader {
-        return Coil.imageLoader(context)
+        return OkHttpProvider.createCoilImageLoader(context)
     }
     
     @Provides

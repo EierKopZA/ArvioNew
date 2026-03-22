@@ -1,7 +1,6 @@
 package com.arflix.tv
 
 import android.app.Application
-import android.graphics.Bitmap
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
@@ -12,23 +11,24 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import coil.Coil
 import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.ProfileManager
-import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.CrashlyticsProvider
+import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.worker.TraktSyncWorker
+import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -36,7 +36,7 @@ import javax.inject.Inject
  * ARVIO TV Application class
  */
 @HiltAndroidApp
-class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFactory {
+class ArflixApplication : Application(), Configuration.Provider {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Inject
@@ -47,7 +47,6 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     lateinit var authRepository: AuthRepository
     @Inject
     lateinit var cloudSyncRepository: CloudSyncRepository
-
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -55,11 +54,23 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // Initialize OkHttp disk cache before any network calls
         OkHttpProvider.init(this)
 
+        // Build global Coil loader using active profile DNS before first image request.
+        runBlocking {
+            profileManager.initialize()
+            applyProfileDnsAndRefreshCoil()
+        }
+
+        // Keep Coil loader in sync when active profile changes.
+        appScope.launch {
+            profileManager.activeProfileId.collect {
+                applyProfileDnsAndRefreshCoil()
+            }
+        }
+
         // Initialize crash reporting (gracefully handles missing Firebase config)
         CrashlyticsProvider.initialize()
         // Initialize active profile asynchronously to avoid blocking cold start.
         appScope.launch {
-            runCatching { profileManager.initialize() }
             if (!authRepository.getCurrentUserId().isNullOrBlank()) {
                 // Keep cold-start smooth: perform first cloud pull after startup settles.
                 delay(12_000L)
@@ -68,26 +79,11 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         }
     }
 
-    override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
-            .okHttpClient(OkHttpProvider.client)
-            .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(0.15)  // Reduced from 25% to 15% to prevent OOM during playback
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(48L * 1024L * 1024L)  // Strict cap to prevent cache bloat on TV storage.
-                    .build()
-            }
-            .crossfade(false)
-            .respectCacheHeaders(false)
-            .allowRgb565(true)  // Performance: Use RGB_565 for faster decoding on TV
-            .bitmapConfig(Bitmap.Config.RGB_565)  // Performance: Smaller bitmaps, faster decode
-            .error(android.R.color.transparent)
-            .build()
+    private suspend fun applyProfileDnsAndRefreshCoil() {
+        val prefs = settingsDataStore.data.first()
+        val raw = prefs[profileManager.profileStringKey("dns_provider")]
+        OkHttpProvider.setDnsProvider(OkHttpProvider.parseDnsProvider(raw))
+        Coil.setImageLoader(OkHttpProvider.createCoilImageLoader(this))
     }
 
     override val workManagerConfiguration: Configuration
@@ -141,7 +137,6 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             private set
     }
 }
-
 
 
 

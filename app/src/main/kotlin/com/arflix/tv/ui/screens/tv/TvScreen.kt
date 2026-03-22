@@ -90,6 +90,7 @@ import coil.size.Precision
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
+import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.util.LocalDeviceType
@@ -220,6 +221,7 @@ fun TvScreen(
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .dns(OkHttpProvider.dns)
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(300, TimeUnit.SECONDS) // 5 min — live streams should not timeout during normal playback
             .build()
@@ -1875,4 +1877,3 @@ private val programTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
 private fun formatProgramTime(utcMillis: Long): String {
     return programTimeFormatter.format(Instant.ofEpochMilli(utcMillis).atZone(ZoneId.systemDefault()))
 }
-

@@ -109,6 +109,7 @@ import coil.size.Precision
 import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.MediaCard as ArvioMediaCard
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.AppTopBar
@@ -431,6 +432,7 @@ fun HomeScreen(
             .connectionPool(ConnectionPool(2, 2, TimeUnit.MINUTES))
             .followRedirects(true).followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .dns(OkHttpProvider.dns)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()

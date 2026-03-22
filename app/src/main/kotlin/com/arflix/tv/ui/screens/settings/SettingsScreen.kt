@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Movie
@@ -168,6 +169,10 @@ fun SettingsScreen(
     var subtitlePickerIndex by remember { mutableIntStateOf(0) }
     var showAudioLanguagePicker by remember { mutableStateOf(false) }
     var audioLanguagePickerIndex by remember { mutableIntStateOf(0) }
+    var showDnsProviderPicker by remember { mutableStateOf(false) }
+    var dnsProviderPickerIndex by remember { mutableIntStateOf(0) }
+    var showDnsRestartConfirm by remember { mutableStateOf(false) }
+    var pendingDnsProvider by remember { mutableStateOf("") }
 
     val sections = remember { listOf("general", "iptv", "catalogs", "addons", "accounts") }
 
@@ -186,6 +191,12 @@ fun SettingsScreen(
         audioLanguagePickerIndex = options.indexOfFirst { it.equals(uiState.defaultAudioLanguage, ignoreCase = true) }
             .coerceAtLeast(0)
         showAudioLanguagePicker = true
+    }
+    val openDnsProviderPicker = {
+        val options = uiState.dnsProviderOptions
+        dnsProviderPickerIndex = options.indexOfFirst { it.equals(uiState.dnsProvider, ignoreCase = true) }
+            .coerceAtLeast(0)
+        showDnsProviderPicker = true
     }
 
     LaunchedEffect(Unit) {
@@ -210,6 +221,15 @@ fun SettingsScreen(
             audioLanguagePickerIndex = if (targetIndex >= 0) targetIndex else audioLanguagePickerIndex.coerceIn(0, maxIndex)
         }
     }
+
+    LaunchedEffect(showDnsProviderPicker, uiState.dnsProviderOptions) {
+        if (showDnsProviderPicker) {
+            val options = uiState.dnsProviderOptions
+            val maxIndex = (options.size - 1).coerceAtLeast(0)
+            val targetIndex = options.indexOfFirst { it.equals(uiState.dnsProvider, ignoreCase = true) }
+            dnsProviderPickerIndex = if (targetIndex >= 0) targetIndex else dnsProviderPickerIndex.coerceIn(0, maxIndex)
+        }
+    }
     
     // Reset content scroll when switching sections.
     LaunchedEffect(sectionIndex) {
@@ -224,7 +244,7 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 6 // General: 7 items
+            0 -> 7 // General: 8 items
             1 -> 2 // IPTV
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
@@ -275,7 +295,7 @@ fun SettingsScreen(
             .onPreviewKeyEvent { event ->
                     if (isTouchDevice) return@onPreviewKeyEvent false
                     // BLOCKER FIX: Ignore main screen navigation if modals are open
-                    if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
+                    if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showDnsProviderPicker || showDnsRestartConfirm || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
 
                 if (event.type == KeyEventType.KeyDown) {
                     val currentSection = sections.getOrNull(sectionIndex).orEmpty()
@@ -390,7 +410,7 @@ fun SettingsScreen(
                                 Zone.CONTENT -> {
                                     // Dynamic max based on current section
                                     val maxIndex = when (sectionIndex) {
-                                        0 -> 6 // General: 7 items
+                                        0 -> 7 // General: 8 items
                                         1 -> 2 // IPTV: Configure + Refresh + Delete
                                         2 -> uiState.catalogs.size // Catalogs: Add + N catalogs
                                         3 -> uiState.addons.size // Addons: N addons + "Add Custom" button
@@ -434,9 +454,10 @@ fun SettingsScreen(
                                                 1 -> openAudioLanguagePicker()
                                                 2 -> viewModel.toggleCardLayoutMode()
                                                 3 -> viewModel.cycleFrameRateMatchingMode()
-                                                4 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
-                                                5 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
-                                                6 -> viewModel.cycleAutoPlayMinQuality()
+                                                4 -> openDnsProviderPicker()
+                                                5 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
+                                                6 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
+                                                7 -> viewModel.cycleAutoPlayMinQuality()
                                             }
                                         }
                                         1 -> { // IPTV
@@ -551,6 +572,7 @@ fun SettingsScreen(
                             defaultAudioLanguage = uiState.defaultAudioLanguage,
                             cardLayoutMode = uiState.cardLayoutMode,
                             frameRateMatchingMode = uiState.frameRateMatchingMode,
+                            dnsProvider = uiState.dnsProvider,
                             autoPlayNext = uiState.autoPlayNext,
                             autoPlaySingleSource = uiState.autoPlaySingleSource,
                             autoPlayMinQuality = uiState.autoPlayMinQuality,
@@ -559,6 +581,7 @@ fun SettingsScreen(
                             onAudioLanguageClick = openAudioLanguagePicker,
                             onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
                             onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                            onDnsProviderClick = openDnsProviderPicker,
                             onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() }
@@ -695,6 +718,7 @@ fun SettingsScreen(
                             defaultAudioLanguage = uiState.defaultAudioLanguage,
                             cardLayoutMode = uiState.cardLayoutMode,
                             frameRateMatchingMode = uiState.frameRateMatchingMode,
+                            dnsProvider = uiState.dnsProvider,
                             autoPlayNext = uiState.autoPlayNext,
                             autoPlaySingleSource = uiState.autoPlaySingleSource,
                             autoPlayMinQuality = uiState.autoPlayMinQuality,
@@ -703,6 +727,7 @@ fun SettingsScreen(
                             onAudioLanguageClick = openAudioLanguagePicker,
                             onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
                             onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                            onDnsProviderClick = openDnsProviderPicker,
                             onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() }
@@ -901,6 +926,41 @@ fun SettingsScreen(
                     showAudioLanguagePicker = false
                 },
                 onDismiss = { showAudioLanguagePicker = false }
+            )
+        }
+
+        if (showDnsProviderPicker) {
+            SubtitlePickerModal(
+                title = "DNS Provider (Auto-Restart)",
+                options = uiState.dnsProviderOptions,
+                selected = uiState.dnsProvider,
+                focusedIndex = dnsProviderPickerIndex,
+                onFocusChange = { dnsProviderPickerIndex = it },
+                onSelect = {
+                    showDnsProviderPicker = false
+                    pendingDnsProvider = it
+                    if (it.equals(uiState.dnsProvider, ignoreCase = true)) {
+                        viewModel.setDnsProvider(it)
+                    } else {
+                        showDnsRestartConfirm = true
+                    }
+                },
+                onDismiss = { showDnsProviderPicker = false }
+            )
+        }
+
+        if (showDnsRestartConfirm) {
+            DnsRestartConfirmModal(
+                providerLabel = pendingDnsProvider,
+                onConfirm = {
+                    showDnsRestartConfirm = false
+                    viewModel.setDnsProvider(pendingDnsProvider)
+                    pendingDnsProvider = ""
+                },
+                onDismiss = {
+                    showDnsRestartConfirm = false
+                    pendingDnsProvider = ""
+                }
             )
         }
 
@@ -1880,6 +1940,7 @@ private fun GeneralSettings(
     defaultAudioLanguage: String,
     cardLayoutMode: String,
     frameRateMatchingMode: String,
+    dnsProvider: String,
     autoPlayNext: Boolean,
     autoPlaySingleSource: Boolean,
     autoPlayMinQuality: String,
@@ -1888,6 +1949,7 @@ private fun GeneralSettings(
     onAudioLanguageClick: () -> Unit,
     onCardLayoutToggle: () -> Unit,
     onFrameRateMatchingClick: () -> Unit,
+    onDnsProviderClick: () -> Unit,
     onAutoPlayToggle: (Boolean) -> Unit,
     onAutoPlaySingleSourceToggle: (Boolean) -> Unit,
     onAutoPlayMinQualityClick: () -> Unit
@@ -1947,13 +2009,24 @@ private fun GeneralSettings(
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsRow(
+            icon = Icons.Default.Language,
+            title = "DNS Provider",
+            subtitle = "Resolver for API/image/stream requests. Changing it restarts the app.",
+            value = dnsProvider,
+            isFocused = focusedIndex == 4,
+            onClick = onDnsProviderClick
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
         
         // Auto-Play Next
         SettingsToggleRow(
             title = "Auto-Play Next",
             subtitle = "Start next episode automatically",
             isEnabled = autoPlayNext,
-            isFocused = focusedIndex == 4,
+            isFocused = focusedIndex == 5,
             onToggle = onAutoPlayToggle
         )
 
@@ -1963,7 +2036,7 @@ private fun GeneralSettings(
             title = "Auto-Play Single Source",
             subtitle = "Skip source picker when only one valid source exists",
             isEnabled = autoPlaySingleSource,
-            isFocused = focusedIndex == 5,
+            isFocused = focusedIndex == 6,
             onToggle = onAutoPlaySingleSourceToggle
         )
 
@@ -1974,7 +2047,7 @@ private fun GeneralSettings(
             title = "Auto-Play Min Quality",
             subtitle = "Minimum quality required for single-source auto-play",
             value = autoPlayMinQuality,
-            isFocused = focusedIndex == 6,
+            isFocused = focusedIndex == 7,
             onClick = onAutoPlayMinQualityClick
         )
     }
@@ -3651,7 +3724,6 @@ private fun SubtitlePickerModal(
     val focusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val safeIndex = focusedIndex.coerceIn(0, (options.size - 1).coerceAtLeast(0))
-
     LaunchedEffect(safeIndex) {
         if (options.isNotEmpty()) {
             listState.animateScrollToItem(safeIndex)
@@ -3761,6 +3833,146 @@ private fun SubtitlePickerModal(
                 color = TextSecondary.copy(alpha = 0.6f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DnsRestartConfirmModal(
+    providerLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var focusedIndex by remember { mutableIntStateOf(1) } // 0 cancel, 1 apply
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.Back, Key.Escape -> {
+                            onDismiss()
+                            true
+                        }
+                        Key.DirectionLeft -> {
+                            if (focusedIndex > 0) focusedIndex--
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            if (focusedIndex < 1) focusedIndex++
+                            true
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            if (focusedIndex == 0) onDismiss() else onConfirm()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .then(
+                    if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 560.dp)
+                    else Modifier.width(560.dp)
+                )
+                .background(BackgroundElevated, RoundedCornerShape(16.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 24.dp)
+        ) {
+            Text(
+                text = "Apply DNS Change?",
+                style = ArflixTypography.sectionTitle,
+                color = TextPrimary
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Switch to $providerLabel and restart the app now?",
+                style = ArflixTypography.body,
+                color = TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                val cancelFocused = focusedIndex == 0
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            color = if (cancelFocused) Color.White else Color.Black.copy(alpha = 0.82f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (cancelFocused) Color.White else Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clickable { onDismiss() }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Cancel",
+                        style = ArflixTypography.button,
+                        color = if (cancelFocused) Color.Black else Color.White
+                    )
+                }
+
+                val applyFocused = focusedIndex == 1
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            color = if (applyFocused) Color.White else Color.Black.copy(alpha = 0.82f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (applyFocused) Color.White else Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clickable { onConfirm() }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Apply & Restart",
+                        style = ArflixTypography.button,
+                        color = if (applyFocused) Color.Black else Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = if (LocalDeviceType.current.isTouchDevice()) {
+                    "Tap a button to continue"
+                } else {
+                    "Left/Right to choose • OK to confirm • Back to cancel"
+                },
+                style = ArflixTypography.caption,
+                color = TextSecondary.copy(alpha = 0.56f)
             )
         }
     }

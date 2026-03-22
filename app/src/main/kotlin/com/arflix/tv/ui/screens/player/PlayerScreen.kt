@@ -106,6 +106,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
@@ -332,6 +333,7 @@ fun PlayerScreen(
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .dns(OkHttpProvider.dns)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

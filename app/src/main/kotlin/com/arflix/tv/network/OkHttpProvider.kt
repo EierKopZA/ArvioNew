@@ -1,12 +1,27 @@
 package com.arflix.tv.network
 
 import android.content.Context
+import android.util.Log
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.arflix.tv.BuildConfig
 import okhttp3.Cache
 import okhttp3.ConnectionPool
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.dnsoverhttps.DnsOverHttps
 import okhttp3.logging.HttpLoggingInterceptor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -22,9 +37,26 @@ import java.util.concurrent.TimeUnit
  * DO NOT add custom TrustManager - it defeats certificate validation.
  */
 object OkHttpProvider {
-
+    private const val TAG = "AppDns"
     /** 50 MB disk cache for API responses (TMDB metadata, Trakt data, etc.) */
     private const val HTTP_CACHE_SIZE = 50L * 1024L * 1024L
+    private const val IMAGE_HTTP_CACHE_SIZE = 100L * 1024L * 1024L
+    private const val IMAGE_DISK_CACHE_SIZE = 48L * 1024L * 1024L
+    private const val CLOUDFLARE_DOH_HOST = "cloudflare-dns.com"
+    private const val CLOUDFLARE_DOH_URL = "https://cloudflare-dns.com/dns-query"
+    private const val GOOGLE_DOH_HOST = "dns.google"
+    private const val GOOGLE_DOH_URL = "https://dns.google/dns-query"
+    private const val ADGUARD_DOH_HOST = "dns.adguard-dns.com"
+    private const val ADGUARD_DOH_URL = "https://dns.adguard-dns.com/dns-query"
+
+    const val DNS_PROVIDER_PREF_KEY = "dns_provider_global"
+
+    enum class AppDnsProvider {
+        SYSTEM,
+        CLOUDFLARE,
+        GOOGLE,
+        ADGUARD
+    }
 
     /**
      * Must be called once from Application.onCreate() before any network calls.
@@ -37,31 +69,235 @@ object OkHttpProvider {
     @Volatile
     private var appContext: Context? = null
 
-    val client: OkHttpClient by lazy {
-        val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) {
-                HttpLoggingInterceptor.Level.BASIC
-            } else {
-                HttpLoggingInterceptor.Level.NONE
+    @Volatile
+    private var selectedDnsProvider: AppDnsProvider = AppDnsProvider.SYSTEM
+
+    private val dnsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val appConnectionPool = ConnectionPool(32, 5, TimeUnit.MINUTES)
+
+    private val systemDns: Dns by lazy {
+        preferIpv4ForTmdb(Dns.SYSTEM)
+    }
+
+    private val cloudflareDns: Dns by lazy {
+        preferIpv4ForTmdb(
+            buildDohDns(
+                url = CLOUDFLARE_DOH_URL,
+                dohHost = CLOUDFLARE_DOH_HOST,
+                bootstrapHosts = cloudflareBootstrapHosts
+            )
+        )
+    }
+
+    private val googleDns: Dns by lazy {
+        preferIpv4ForTmdb(
+            buildDohDns(
+                url = GOOGLE_DOH_URL,
+                dohHost = GOOGLE_DOH_HOST,
+                bootstrapHosts = googleBootstrapHosts
+            )
+        )
+    }
+
+    private val adguardDns: Dns by lazy {
+        preferIpv4ForTmdb(
+            buildDohDns(
+                url = ADGUARD_DOH_URL,
+                dohHost = ADGUARD_DOH_HOST,
+                bootstrapHosts = adguardBootstrapHosts
+            )
+        )
+    }
+
+    val dns: Dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            return selectedDns(selectedDnsProvider).lookup(hostname)
+        }
+    }
+
+    private val apiDnsLoggingInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        Log.i(
+            TAG,
+            "API request dnsProvider=$selectedDnsProvider method=${request.method} host=${request.url.host} url=${request.url}"
+        )
+        chain.proceed(request)
+    }
+
+    private fun selectedDns(provider: AppDnsProvider): Dns {
+        return when (provider) {
+            AppDnsProvider.SYSTEM -> systemDns
+            AppDnsProvider.CLOUDFLARE -> cloudflareDns
+            AppDnsProvider.GOOGLE -> googleDns
+            AppDnsProvider.ADGUARD -> adguardDns
+        }
+    }
+
+    val client: OkHttpClient
+        get() {
+            val loggingInterceptor = HttpLoggingInterceptor().apply {
+                level = if (BuildConfig.DEBUG) {
+                    HttpLoggingInterceptor.Level.BASIC
+                } else {
+                    HttpLoggingInterceptor.Level.NONE
+                }
+            }
+
+            val builder = OkHttpClient.Builder()
+                // Direct API calls — no Supabase edge function proxy.
+                // TMDB/Trakt keys are passed as query params / headers by Retrofit.
+                .addInterceptor(apiDnsLoggingInterceptor)
+                .addInterceptor(loggingInterceptor)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .connectionPool(appConnectionPool)
+                .dns(dns)
+                .retryOnConnectionFailure(true)
+
+            // Attach disk cache if context was initialized
+            appContext?.let { ctx ->
+                val cacheDir = File(ctx.cacheDir, "http_cache")
+                builder.cache(Cache(cacheDir, HTTP_CACHE_SIZE))
+            }
+
+            return builder.build()
+        }
+
+    private val cloudflareBootstrapHosts: List<InetAddress> by lazy {
+        listOf(
+            InetAddress.getByName("1.1.1.1"),
+            InetAddress.getByName("1.0.0.1"),
+            InetAddress.getByName("2606:4700:4700::1111"),
+            InetAddress.getByName("2606:4700:4700::1001")
+        )
+    }
+
+    private val googleBootstrapHosts: List<InetAddress> by lazy {
+        listOf(
+            InetAddress.getByName("8.8.8.8"),
+            InetAddress.getByName("8.8.4.4"),
+            InetAddress.getByName("2001:4860:4860::8888"),
+            InetAddress.getByName("2001:4860:4860::8844")
+        )
+    }
+
+    private val adguardBootstrapHosts: List<InetAddress> by lazy {
+        listOf(
+            InetAddress.getByName("94.140.14.14"),
+            InetAddress.getByName("94.140.15.15"),
+            InetAddress.getByName("2a10:50c0::ad1:ff"),
+            InetAddress.getByName("2a10:50c0::ad2:ff")
+        )
+    }
+
+    fun parseDnsProvider(raw: String?): AppDnsProvider {
+        return when (raw?.trim()?.lowercase()) {
+            "system", "system dns", "system_dns" -> AppDnsProvider.SYSTEM
+            "cloudflare", "cloudflare dns", "cloudflare_dns" -> AppDnsProvider.CLOUDFLARE
+            "google" -> AppDnsProvider.GOOGLE
+            "adguard", "ad guard" -> AppDnsProvider.ADGUARD
+            else -> AppDnsProvider.SYSTEM
+        }
+    }
+
+    fun setDnsProvider(provider: AppDnsProvider) {
+        selectedDnsProvider = provider
+        Log.i(TAG, "Using DNS provider=$provider")
+        dnsScope.launch {
+            appConnectionPool.evictAll()
+            Log.i(TAG, "Evicted pooled app connections after DNS change")
+        }
+    }
+
+    private fun preferIpv4ForTmdb(delegate: Dns): Dns {
+        return object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                val resolved = delegate.lookup(hostname)
+                if (!hostname.contains("tmdb", ignoreCase = true) &&
+                    !hostname.contains("themoviedb", ignoreCase = true)
+                ) {
+                    return resolved
+                }
+
+                val ipv4 = resolved.filterIsInstance<Inet4Address>()
+                if (ipv4.isEmpty()) {
+                    return resolved
+                }
+                val ipv6 = resolved.filterNot { it is Inet4Address }
+                return ipv4 + ipv6
             }
         }
+    }
 
-        val builder = OkHttpClient.Builder()
-            // Direct API calls — no Supabase edge function proxy.
-            // TMDB/Trakt keys are passed as query params / headers by Retrofit.
-            .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
-            .retryOnConnectionFailure(true)
+    private fun buildBootstrapDns(
+        dohHost: String,
+        bootstrapHosts: List<InetAddress>
+    ): Dns {
+        return object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                if (hostname.equals(dohHost, ignoreCase = true)) {
+                    return bootstrapHosts
+                }
+                throw UnknownHostException(
+                    "Bootstrap DNS is restricted to $dohHost. Requested: $hostname"
+                )
+            }
+        }
+    }
 
-        // Attach disk cache if context was initialized
-        appContext?.let { ctx ->
-            val cacheDir = File(ctx.cacheDir, "http_cache")
-            builder.cache(Cache(cacheDir, HTTP_CACHE_SIZE))
+    private fun buildDohDns(
+        url: String,
+        dohHost: String,
+        bootstrapHosts: List<InetAddress>
+    ): Dns {
+        val bootstrapDns = buildBootstrapDns(dohHost, bootstrapHosts)
+        val bootstrapClient = OkHttpClient.Builder()
+            .dns(bootstrapDns)
+            .cache(null)
+            .build()
+
+        return DnsOverHttps.Builder()
+            .client(bootstrapClient)
+            .url(url.toHttpUrl())
+            .systemDns(bootstrapDns)
+            .bootstrapDnsHosts(*bootstrapHosts.toTypedArray())
+            .post(true)
+            .resolvePrivateAddresses(false)
+            .resolvePublicAddresses(true)
+            .build()
+    }
+
+    val coilClient: OkHttpClient
+        get() {
+            val builder = client.newBuilder()
+            builder.interceptors().remove(apiDnsLoggingInterceptor)
+            builder.dns(dns)
+            return builder.build()
         }
 
-        builder.build()
+    fun createCoilImageLoader(context: Context): ImageLoader {
+        val imageHttpClient = coilClient.newBuilder()
+            .cache(Cache(File(context.cacheDir, "image_http_cache"), IMAGE_HTTP_CACHE_SIZE))
+            .build()
+
+        return ImageLoader.Builder(context)
+            .okHttpClient(imageHttpClient)
+            .memoryCache {
+                MemoryCache.Builder(context)
+                    .maxSizePercent(0.15)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(IMAGE_DISK_CACHE_SIZE)
+                    .build()
+            }
+            .crossfade(false)
+            .respectCacheHeaders(false)
+            .allowRgb565(true)
+            .build()
     }
 }
