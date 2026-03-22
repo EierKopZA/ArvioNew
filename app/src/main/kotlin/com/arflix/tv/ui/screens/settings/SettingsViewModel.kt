@@ -1,8 +1,6 @@
 package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
-import android.content.Intent
-import android.os.Process
 import coil.Coil
 import com.arflix.tv.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -56,7 +54,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.system.exitProcess
 import java.io.File
 import javax.inject.Inject
 
@@ -757,23 +754,6 @@ class SettingsViewModel @Inject constructor(
                 OkHttpProvider.createCoilImageLoader(context)
             }
             Coil.setImageLoader(imageLoader)
-
-            delay(250)
-            restartApp()
-        }
-    }
-
-    private fun restartApp() {
-        val launchIntent = context.packageManager
-            .getLaunchIntentForPackage(context.packageName)
-            ?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            }
-
-        if (launchIntent != null) {
-            context.startActivity(launchIntent)
-            Process.killProcess(Process.myPid())
-            exitProcess(0)
         }
     }
 
