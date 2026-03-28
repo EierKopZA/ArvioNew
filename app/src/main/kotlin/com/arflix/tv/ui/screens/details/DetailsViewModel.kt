@@ -849,6 +849,35 @@ class DetailsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(toastMessage = null)
     }
 
+    fun showToast(message: String, type: ToastType = ToastType.INFO) {
+        _uiState.value = _uiState.value.copy(
+            toastMessage = message,
+            toastType = type
+        )
+    }
+
+    private fun isPendingDebridStream(stream: StreamSource): Boolean {
+        val text = listOfNotNull(stream.source, stream.addonName, stream.quality, stream.url)
+            .joinToString(" ")
+            .lowercase()
+        return listOf(
+            "torrent being downloaded",
+            "being downloaded",
+            "still downloading",
+            "queued",
+            "not cached",
+            "uncached",
+            "cache pending",
+            "caching",
+            "processing torrent",
+            "download in progress"
+        ).any { text.contains(it) }
+    }
+
+    private fun sortPlayableStreamsFirst(streams: List<StreamSource>): List<StreamSource> {
+        return streams.sortedBy { if (isPendingDebridStream(it)) 1 else 0 }
+    }
+
     /**
      * Refresh watched badges and continue target when returning from Player.
      * Uses local caches/history first for near-instant UI updates.
@@ -1098,8 +1127,10 @@ class DetailsViewModel @Inject constructor(
                     ).collect { progressive ->
                         if (!isCurrentRequest()) return@collect
                         val existingVod = _uiState.value.streams.filter { it.addonId == "iptv_xtream_vod" }
-                        val mergedStreams = (progressive.streams + existingVod)
-                            .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val mergedStreams = sortPlayableStreamsFirst(
+                            (progressive.streams + existingVod)
+                                .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        )
                         val addonCount = streamRepository.installedAddons.first()
                             .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE }
                         _uiState.value = _uiState.value.copy(
@@ -1139,8 +1170,10 @@ class DetailsViewModel @Inject constructor(
                     ).collect { progressive ->
                         if (!isCurrentRequest()) return@collect
                         val existingVod = _uiState.value.streams.filter { it.addonId == "iptv_xtream_vod" }
-                        val mergedStreams = (progressive.streams + existingVod)
-                            .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val mergedStreams = sortPlayableStreamsFirst(
+                            (progressive.streams + existingVod)
+                                .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        )
                         val addonCount = streamRepository.installedAddons.first()
                             .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE }
                         _uiState.value = _uiState.value.copy(

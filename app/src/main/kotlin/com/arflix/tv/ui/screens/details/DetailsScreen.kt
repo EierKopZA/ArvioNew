@@ -725,6 +725,13 @@ fun DetailsScreen(
             isLoading = uiState.isLoadingStreams,
             hasStreamingAddons = uiState.hasStreamingAddons,
             onSelect = { stream ->
+                if (isPendingDebridStream(stream)) {
+                    viewModel.showToast(
+                        "This debrid torrent is still being downloaded. Try another source or wait a bit.",
+                        ToastType.ERROR
+                    )
+                    return@StreamSelector
+                }
                 showStreamSelector = false
                 val ep = uiState.episodes.getOrNull(episodeIndex)
                 onNavigateToPlayer(
@@ -844,7 +851,26 @@ private fun minQualityThreshold(value: String): Int {
 
 private fun isAutoPlayableStream(stream: com.arflix.tv.data.model.StreamSource): Boolean {
     val url = stream.url?.trim().orEmpty()
-    return url.startsWith("http", ignoreCase = true)
+    if (!url.startsWith("http", ignoreCase = true)) return false
+    return !isPendingDebridStream(stream)
+}
+
+private fun isPendingDebridStream(stream: com.arflix.tv.data.model.StreamSource): Boolean {
+    val text = listOfNotNull(stream.source, stream.addonName, stream.quality, stream.url)
+        .joinToString(" ")
+        .lowercase()
+    return listOf(
+        "torrent being downloaded",
+        "being downloaded",
+        "still downloading",
+        "queued",
+        "not cached",
+        "uncached",
+        "cache pending",
+        "caching",
+        "processing torrent",
+        "download in progress"
+    ).any { text.contains(it) }
 }
 
 private fun handleLeft(
