@@ -219,8 +219,11 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
-    // FFmpeg extension for software decoding of DTS/TrueHD/Atmos/HEVC/DV (Jellyfin's prebuilt)
-    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.3.1+2")
+    // FFmpeg extension for software decoding of DTS/TrueHD/Atmos/HEVC/DV.
+    // Keep this only in the sideload build. The Play Store build must comply
+    // with 16 KB memory page support, and the current prebuilt native library
+    // (libffmpegJNI.so) is the likely source of the Play Console warning.
+    add("sideloadImplementation", "org.jellyfin.media3:media3-ffmpeg-decoder:1.3.1+2")
 
     // Networking - Retrofit + OkHttp
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
