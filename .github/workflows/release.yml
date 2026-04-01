@@ -82,8 +82,14 @@ jobs:
           if [ -z "$NOTES" ]; then
             NOTES="Release ${TAG}"
           fi
-          # Write to file for gh release
-          echo "$NOTES" > release_notes.md
+          # Append download code and write to file for gh release
+          cat > release_notes.md <<EOFNOTES
+          ${NOTES}
+
+          ---
+
+          📥 **Downloader Code:** \`2633582\` — enter in [Downloader App](https://aftv.news/2633582) on Fire TV / Android TV
+          EOFNOTES
 
       - name: Create GitHub Release
         env:
@@ -150,7 +156,7 @@ jobs:
             '{
               embeds: [{
                 title: $title,
-                description: $desc,
+                description: ($desc + "\n\n---\n📥 **Downloader Code:** `2633582` — enter in Downloader App on Fire TV / Android TV\n🔗 [aftv.news/2633582](https://aftv.news/2633582)"),
                 url: $url,
                 color: 5814783,
                 footer: { text: "Download the APK from GitHub or update via Play Store" }
