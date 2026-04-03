@@ -7,6 +7,11 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+## [1.9.72] - 2026-04-03
+
+### Fixed
+- Cloud sign-in now survives Supabase session-import failures on some devices by falling back to the returned JWT identity and caching the raw session tokens for recovery.
+
 ## [1.9.71] - 2026-04-03
 
 ### Fixed
