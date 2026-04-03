@@ -157,14 +157,15 @@ jobs:
       - name: Post to Discord
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_NOTES: ${{ steps.changelog.outputs.notes }}
         run: |
           TAG="${{ needs.build.outputs.tag }}"
           RELEASE_URL="https://github.com/ProdigyV21/ARVIO/releases/tag/${TAG}"
 
-          # Build JSON payload with embed
+          # Build JSON payload with embed — notes passed via env to avoid shell quoting issues
           jq -n \
             --arg title "🚀 ARVIO ${TAG} Released!" \
-            --arg desc "${{ steps.changelog.outputs.notes }}" \
+            --arg desc "$DISCORD_NOTES" \
             --arg url "$RELEASE_URL" \
             '{
               embeds: [{
@@ -207,6 +208,7 @@ jobs:
           REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
           REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
           REDDIT_SUBREDDIT: ${{ secrets.REDDIT_SUBREDDIT }}
+          REDDIT_NOTES: ${{ steps.changelog.outputs.notes }}
         run: |
           TAG="${{ needs.build.outputs.tag }}"
           RELEASE_URL="https://github.com/ProdigyV21/ARVIO/releases/tag/${TAG}"
@@ -221,7 +223,7 @@ jobs:
           BODY="$(cat <<EOFBODY
           ## ARVIO ${TAG} Released!
 
-          ${{ steps.changelog.outputs.notes }}
+          ${REDDIT_NOTES}
 
           ---
 
