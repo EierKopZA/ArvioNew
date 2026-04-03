@@ -7,6 +7,14 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+## [1.9.71] - 2026-04-03
+
+### Fixed
+- Mobile cloud sign-in no longer opens the email/password dialog before the pairing session exists, which previously caused false `Cloud login expired` errors.
+- Cloud sign-in now recreates the pairing session before submit when needed and shows the real start failure instead of a misleading expiry message.
+- Startup no longer crashes on TV devices/ROMs that reject `android.media.tv` channel queries for launcher continue-watching publishing.
+- Launcher continue-watching publishing now fails closed, so unsupported TV providers are skipped instead of breaking app startup.
+
 ## [1.9.7] - 2026-04-01
 
 ### Added

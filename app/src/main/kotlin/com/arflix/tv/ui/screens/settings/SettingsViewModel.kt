@@ -22,6 +22,7 @@ import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.ProfileRepository
 import com.arflix.tv.data.repository.StreamRepository
 import com.arflix.tv.data.repository.TvDeviceAuthRepository
+import com.arflix.tv.data.repository.TvDeviceAuthSession
 import com.arflix.tv.data.repository.TvDeviceAuthStatusType
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.TraktSyncService
@@ -1267,27 +1268,17 @@ class SettingsViewModel @Inject constructor(
         if (_uiState.value.isLoggedIn || _uiState.value.isCloudAuthWorking) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isCloudAuthWorking = true)
-            tvDeviceAuthRepository.startSession()
-                .onSuccess { session ->
-                    cloudDeviceCode = session.deviceCode
-                    cloudUserCode = session.userCode
-                    cloudVerificationUrl = session.verificationUrl
-                    cloudPollIntervalMs = (session.intervalSeconds.coerceIn(1, 10) * 1000L)
-                    cloudExpiresAtMs = System.currentTimeMillis() + (session.expiresInSeconds.coerceAtLeast(30) * 1000L)
+            ensureCloudAuthSession(startPolling = true)
+                .onSuccess {
                     _uiState.value = _uiState.value.copy(
                         isCloudAuthWorking = false,
                         showCloudPairDialog = true,
-                        cloudUserCode = session.userCode,
-                        cloudVerificationUrl = session.verificationUrl
+                        cloudUserCode = cloudUserCode,
+                        cloudVerificationUrl = cloudVerificationUrl
                     )
-                    startCloudPolling()
                 }
                 .onFailure { error ->
-                    cloudDeviceCode = null
-                    cloudUserCode = null
-                    cloudVerificationUrl = null
-                    cloudPollIntervalMs = 800L
-                    cloudExpiresAtMs = 0L
+                    clearCloudAuthSession()
                     _uiState.value = _uiState.value.copy(
                         isCloudAuthWorking = false,
                         toastMessage = error.message ?: "Failed to start cloud login",
@@ -1298,10 +1289,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun cancelCloudAuth() {
-        cloudDeviceCode = null
-        cloudUserCode = null
-        cloudVerificationUrl = null
-        cloudPollingJob?.cancel()
+        clearCloudAuthSession()
         _uiState.value = _uiState.value.copy(
             showCloudPairDialog = false,
             cloudUserCode = null,
@@ -1313,27 +1301,29 @@ class SettingsViewModel @Inject constructor(
 
     fun openCloudEmailPasswordDialog() {
         if (_uiState.value.isLoggedIn) return
-        // Show email/password dialog directly (used on mobile where QR scanning isn't practical).
-        // If we already have an active pairing session, keep it running in the background.
-        _uiState.value = _uiState.value.copy(
-            showCloudPairDialog = false,
-            showCloudEmailPasswordDialog = true
-        )
-        // Start the device auth session in the background if not already active,
-        // so polling still works if the user later switches to QR on a different device.
-        if (cloudDeviceCode.isNullOrBlank() || cloudUserCode.isNullOrBlank()) {
-            viewModelScope.launch {
-                runCatching {
-                    tvDeviceAuthRepository.startSession().onSuccess { session ->
-                        cloudDeviceCode = session.deviceCode
-                        cloudUserCode = session.userCode
-                        cloudVerificationUrl = session.verificationUrl
-                        cloudPollIntervalMs = (session.intervalSeconds.coerceIn(1, 10) * 1000L)
-                        cloudExpiresAtMs = System.currentTimeMillis() + (session.expiresInSeconds.coerceAtLeast(30) * 1000L)
-                        startCloudPolling()
-                    }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                showCloudPairDialog = false,
+                showCloudEmailPasswordDialog = false,
+                isCloudAuthWorking = true
+            )
+            ensureCloudAuthSession(startPolling = false)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(
+                        showCloudPairDialog = false,
+                        showCloudEmailPasswordDialog = true,
+                        isCloudAuthWorking = false
+                    )
                 }
-            }
+                .onFailure { error ->
+                    clearCloudAuthSession()
+                    _uiState.value = _uiState.value.copy(
+                        showCloudEmailPasswordDialog = false,
+                        isCloudAuthWorking = false,
+                        toastMessage = error.message ?: "Failed to start cloud sign-in",
+                        toastType = ToastType.ERROR
+                    )
+                }
         }
     }
 
@@ -1346,22 +1336,7 @@ class SettingsViewModel @Inject constructor(
         password: String,
         createAccount: Boolean
     ) {
-        val deviceCode = cloudDeviceCode
-        val userCode = cloudUserCode
         val trimmedEmail = email.trim()
-
-        if (deviceCode.isNullOrBlank() || userCode.isNullOrBlank()) {
-            _uiState.value = _uiState.value.copy(
-                toastMessage = "Cloud login expired. Open ARVIO Cloud again.",
-                toastType = ToastType.ERROR,
-                isCloudAuthWorking = false,
-                showCloudEmailPasswordDialog = false
-            )
-            cloudDeviceCode = null
-            cloudUserCode = null
-            cloudExpiresAtMs = 0L
-            return
-        }
         if (trimmedEmail.isBlank()) {
             _uiState.value = _uiState.value.copy(
                 toastMessage = "Email is required",
@@ -1379,6 +1354,28 @@ class SettingsViewModel @Inject constructor(
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isCloudAuthWorking = true)
+            val sessionReady = ensureCloudAuthSession(startPolling = false)
+            if (sessionReady.isFailure) {
+                clearCloudAuthSession()
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = sessionReady.exceptionOrNull()?.message ?: "Cloud sign-in could not start. Try again.",
+                    toastType = ToastType.ERROR,
+                    isCloudAuthWorking = false
+                )
+                return@launch
+            }
+
+            val userCode = cloudUserCode
+            if (userCode.isNullOrBlank()) {
+                clearCloudAuthSession()
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = "Cloud sign-in session was unavailable. Try again.",
+                    toastType = ToastType.ERROR,
+                    isCloudAuthWorking = false
+                )
+                return@launch
+            }
+
             tvDeviceAuthRepository.completeWithEmailPassword(
                 userCode = userCode,
                 email = trimmedEmail,
@@ -1434,10 +1431,7 @@ class SettingsViewModel @Inject constructor(
 
                         val tokenImport = authRepository.signInWithSessionTokens(access, refresh)
                         if (tokenImport.isSuccess) {
-                            cloudDeviceCode = null
-                            cloudUserCode = null
-                            cloudVerificationUrl = null
-                            cloudExpiresAtMs = 0L
+                            clearCloudAuthSession(cancelPolling = false)
                             pendingProfileSwitchAfterCloudLogin = true
                             _uiState.value = _uiState.value.copy(
                                 isCloudAuthWorking = false,
@@ -1468,10 +1462,7 @@ class SettingsViewModel @Inject constructor(
                             toastMessage = status.message ?: "Cloud sign-in expired. Try again.",
                             toastType = ToastType.ERROR
                         )
-                        cloudDeviceCode = null
-                        cloudUserCode = null
-                        cloudVerificationUrl = null
-                        cloudExpiresAtMs = 0L
+                        clearCloudAuthSession(cancelPolling = false)
                         return@launch
                     }
                     TvDeviceAuthStatusType.ERROR -> {
@@ -1492,6 +1483,50 @@ class SettingsViewModel @Inject constructor(
                 toastMessage = "Sign-in did not complete. Try again.",
                 toastType = ToastType.ERROR
             )
+            clearCloudAuthSession(cancelPolling = false)
+        }
+    }
+
+    private fun hasActiveCloudAuthSession(): Boolean {
+        val hasCodes = !cloudDeviceCode.isNullOrBlank() && !cloudUserCode.isNullOrBlank()
+        if (!hasCodes) return false
+        return cloudExpiresAtMs <= 0L || System.currentTimeMillis() < cloudExpiresAtMs
+    }
+
+    private fun applyCloudAuthSession(session: TvDeviceAuthSession) {
+        cloudDeviceCode = session.deviceCode
+        cloudUserCode = session.userCode
+        cloudVerificationUrl = session.verificationUrl
+        cloudPollIntervalMs = (session.intervalSeconds.coerceIn(1, 10) * 1000L)
+        cloudExpiresAtMs = System.currentTimeMillis() + (session.expiresInSeconds.coerceAtLeast(30) * 1000L)
+    }
+
+    private fun clearCloudAuthSession(cancelPolling: Boolean = true) {
+        cloudDeviceCode = null
+        cloudUserCode = null
+        cloudVerificationUrl = null
+        cloudPollIntervalMs = 800L
+        cloudExpiresAtMs = 0L
+        if (cancelPolling) {
+            cloudPollingJob?.cancel()
+        }
+        cloudPollingJob = null
+    }
+
+    private suspend fun ensureCloudAuthSession(startPolling: Boolean): Result<Unit> {
+        if (hasActiveCloudAuthSession()) {
+            if (startPolling && cloudPollingJob?.isActive != true) {
+                startCloudPolling()
+            }
+            return Result.success(Unit)
+        }
+
+        clearCloudAuthSession()
+        return tvDeviceAuthRepository.startSession().map { session ->
+            applyCloudAuthSession(session)
+            if (startPolling) {
+                startCloudPolling()
+            }
         }
     }
 

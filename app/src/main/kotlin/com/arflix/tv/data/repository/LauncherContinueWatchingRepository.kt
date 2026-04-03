@@ -18,6 +18,7 @@ import com.arflix.tv.MainActivity
 import com.arflix.tv.R
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.navigation.Screen
+import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.Constants
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
     private val watchHistoryRepository: WatchHistoryRepository
 ) {
     companion object {
+        private const val TAG = "LauncherCW"
         private const val CHANNEL_INTERNAL_ID = "arvio_continue_watching_channel"
         private const val PREVIEW_PROGRAM_PREFIX = "arvio_continue_preview"
         private const val WATCH_NEXT_PROGRAM_PREFIX = "arvio_continue_watchnext"
@@ -59,18 +61,22 @@ class LauncherContinueWatchingRepository @Inject constructor(
 
         val items = loadPublisherItems()
         withContext(Dispatchers.IO) {
-            syncPublishedRows(items)
+            runTvProviderCall("refresh launcher continue watching") {
+                syncPublishedRows(items)
+            }
         }
     }
 
     suspend fun clearPublishedPrograms() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !supportsLauncherPublishing()) return
         withContext(Dispatchers.IO) {
-            val channelId = findExistingChannelId()
-            if (channelId != null) {
-                deletePreviewPrograms(channelId)
+            runTvProviderCall("clear launcher continue watching") {
+                val channelId = findExistingChannelId()
+                if (channelId != null) {
+                    deletePreviewPrograms(channelId)
+                }
+                deleteWatchNextPrograms()
             }
-            deleteWatchNextPrograms()
         }
     }
 
@@ -117,7 +123,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun syncPublishedRows(items: List<ContinueWatchingItem>) {
-        val channelId = ensurePreviewChannel()
+        val channelId = ensurePreviewChannel() ?: return
         deletePreviewPrograms(channelId)
         deleteWatchNextPrograms()
 
@@ -132,7 +138,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun ensurePreviewChannel(): Long {
+    private fun ensurePreviewChannel(): Long? {
         findExistingChannelId()?.let { return it }
 
         val channel = Channel.Builder()
@@ -145,7 +151,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
         val channelUri = context.contentResolver.insert(
             TvContractCompat.Channels.CONTENT_URI,
             channel.toContentValues()
-        ) ?: throw IllegalStateException("Failed to create Continue Watching channel")
+        ) ?: return null
 
         val channelId = ContentUris.parseId(channelUri)
         BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)?.let { bitmap ->
@@ -198,23 +204,25 @@ class LauncherContinueWatchingRepository @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     private fun deletePreviewPrograms(channelId: Long) {
         val projection = arrayOf(BaseColumns._ID, TvContractCompat.PreviewPrograms.COLUMN_CHANNEL_ID)
-        context.contentResolver.query(
-            TvContractCompat.PreviewPrograms.CONTENT_URI,
-            projection,
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
-            val channelIdIndex = cursor.getColumnIndexOrThrow(TvContractCompat.PreviewPrograms.COLUMN_CHANNEL_ID)
-            while (cursor.moveToNext()) {
-                if (cursor.getLong(channelIdIndex) != channelId) continue
-                val rowId = cursor.getLong(idIndex)
-                context.contentResolver.delete(
-                    ContentUris.withAppendedId(TvContractCompat.PreviewPrograms.CONTENT_URI, rowId),
-                    null,
-                    null
-                )
+        runTvProviderCall("delete preview rows") {
+            context.contentResolver.query(
+                TvContractCompat.PreviewPrograms.CONTENT_URI,
+                projection,
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
+                val channelIdIndex = cursor.getColumnIndexOrThrow(TvContractCompat.PreviewPrograms.COLUMN_CHANNEL_ID)
+                while (cursor.moveToNext()) {
+                    if (cursor.getLong(channelIdIndex) != channelId) continue
+                    val rowId = cursor.getLong(idIndex)
+                    context.contentResolver.delete(
+                        ContentUris.withAppendedId(TvContractCompat.PreviewPrograms.CONTENT_URI, rowId),
+                        null,
+                        null
+                    )
+                }
             }
         }
     }
@@ -222,24 +230,26 @@ class LauncherContinueWatchingRepository @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     private fun deleteWatchNextPrograms() {
         val projection = arrayOf(BaseColumns._ID, TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID)
-        context.contentResolver.query(
-            TvContractCompat.WatchNextPrograms.CONTENT_URI,
-            projection,
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
-            val internalIdIndex = cursor.getColumnIndexOrThrow(TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID)
-            while (cursor.moveToNext()) {
-                val internalId = cursor.getString(internalIdIndex).orEmpty()
-                if (!internalId.startsWith(WATCH_NEXT_PROGRAM_PREFIX)) continue
-                val rowId = cursor.getLong(idIndex)
-                context.contentResolver.delete(
-                    ContentUris.withAppendedId(TvContractCompat.WatchNextPrograms.CONTENT_URI, rowId),
-                    null,
-                    null
-                )
+        runTvProviderCall("delete watch-next rows") {
+            context.contentResolver.query(
+                TvContractCompat.WatchNextPrograms.CONTENT_URI,
+                projection,
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
+                val internalIdIndex = cursor.getColumnIndexOrThrow(TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID)
+                while (cursor.moveToNext()) {
+                    val internalId = cursor.getString(internalIdIndex).orEmpty()
+                    if (!internalId.startsWith(WATCH_NEXT_PROGRAM_PREFIX)) continue
+                    val rowId = cursor.getLong(idIndex)
+                    context.contentResolver.delete(
+                        ContentUris.withAppendedId(TvContractCompat.WatchNextPrograms.CONTENT_URI, rowId),
+                        null,
+                        null
+                    )
+                }
             }
         }
     }
@@ -247,22 +257,36 @@ class LauncherContinueWatchingRepository @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     private fun findExistingChannelId(): Long? {
         val projection = arrayOf(BaseColumns._ID, TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID)
-        context.contentResolver.query(
-            TvContractCompat.Channels.CONTENT_URI,
-            projection,
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
-            val internalIdIndex = cursor.getColumnIndexOrThrow(TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID)
-            while (cursor.moveToNext()) {
-                if (cursor.getString(internalIdIndex) == CHANNEL_INTERNAL_ID) {
-                    return cursor.getLong(idIndex)
+        return runTvProviderCall("find existing preview channel", null) {
+            context.contentResolver.query(
+                TvContractCompat.Channels.CONTENT_URI,
+                projection,
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
+                val internalIdIndex = cursor.getColumnIndexOrThrow(TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID)
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(internalIdIndex) == CHANNEL_INTERNAL_ID) {
+                        return@runTvProviderCall cursor.getLong(idIndex)
+                    }
                 }
             }
+            null
         }
-        return null
+    }
+
+    private fun runTvProviderCall(action: String, block: () -> Unit) {
+        runCatching(block).onFailure { error ->
+            AppLogger.w(TAG, "Skipping launcher publish action: $action", error)
+        }
+    }
+
+    private fun <T> runTvProviderCall(action: String, fallback: T, block: () -> T): T {
+        return runCatching(block).onFailure { error ->
+            AppLogger.w(TAG, "Skipping launcher publish action: $action", error)
+        }.getOrDefault(fallback)
     }
 
     private fun buildLaunchIntent(item: ContinueWatchingItem): Intent {
