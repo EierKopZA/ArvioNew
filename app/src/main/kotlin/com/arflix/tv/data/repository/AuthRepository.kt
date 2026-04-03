@@ -313,17 +313,38 @@ class AuthRepository @Inject constructor(
             _authState.value = AuthState.Loading
             val session = withContext(Dispatchers.Main) {
                 supabase.auth.importAuthToken(accessToken, refreshToken, false, true)
-                supabase.auth.currentSessionOrNull()
+                supabase.auth.currentSessionOrNull() ?: run {
+                    supabase.auth.loadFromStorage(true)
+                    supabase.auth.currentSessionOrNull()
+                }
             }
-            val user = session?.user
-            if (session != null && user != null) {
+            val resolvedUserId = session?.user?.id ?: extractUserIdFromAccessToken(accessToken)
+            val resolvedEmail = session?.user?.email
+                ?: extractUserEmailFromAccessToken(accessToken)
+                ?: context.authDataStore.data.first()[PrefsKeys.USER_EMAIL]
+
+            if (session != null) {
                 storeSession(session)
-                var profile = loadUserProfile(user.id)
+            } else if (!resolvedUserId.isNullOrBlank()) {
+                storeRawSessionTokens(
+                    accessToken = accessToken,
+                    refreshToken = refreshToken,
+                    userId = resolvedUserId,
+                    email = resolvedEmail
+                )
+            }
+
+            if (!resolvedUserId.isNullOrBlank()) {
+                var profile = loadUserProfile(resolvedUserId)
                 if (profile == null) {
-                    profile = createDefaultProfile(user.id, user.email ?: "")
+                    profile = createDefaultProfile(resolvedUserId, resolvedEmail ?: "")
                 }
                 _userProfile.value = profile
-                _authState.value = AuthState.Authenticated(user.id, user.email ?: "", profile)
+                _authState.value = AuthState.Authenticated(
+                    resolvedUserId,
+                    resolvedEmail ?: profile.email,
+                    profile
+                )
                 Result.success(Unit)
             } else {
                 _authState.value = AuthState.Error("Failed to import auth session")
@@ -667,6 +688,44 @@ class AuthRepository @Inject constructor(
                 prefs[PrefsKeys.USER_ID] = user.id
                 user.email?.let { prefs[PrefsKeys.USER_EMAIL] = it }
             }
+        }
+    }
+
+    private suspend fun storeRawSessionTokens(
+        accessToken: String,
+        refreshToken: String,
+        userId: String,
+        email: String?
+    ) {
+        context.authDataStore.edit { prefs ->
+            prefs[PrefsKeys.ACCESS_TOKEN] = accessToken
+            prefs[PrefsKeys.REFRESH_TOKEN] = refreshToken
+            prefs[PrefsKeys.USER_ID] = userId
+            if (!email.isNullOrBlank()) {
+                prefs[PrefsKeys.USER_EMAIL] = email
+            }
+        }
+    }
+
+    private fun extractUserIdFromAccessToken(accessToken: String): String? {
+        return decodeJwtPayload(accessToken)?.optString("sub")?.takeIf { it.isNotBlank() }
+    }
+
+    private fun extractUserEmailFromAccessToken(accessToken: String): String? {
+        return decodeJwtPayload(accessToken)?.optString("email")?.takeIf { it.isNotBlank() }
+    }
+
+    private fun decodeJwtPayload(token: String): JSONObject? {
+        return try {
+            val parts = token.split(".")
+            if (parts.size < 2) return null
+            val payload = String(
+                Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP),
+                Charsets.UTF_8
+            )
+            JSONObject(payload)
+        } catch (e: Exception) {
+            null
         }
     }
 

@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 - Cloud sign-in now recreates the pairing session before submit when needed and shows the real start failure instead of a misleading expiry message.
 - Startup no longer crashes on TV devices/ROMs that reject `android.media.tv` channel queries for launcher continue-watching publishing.
 - Launcher continue-watching publishing now fails closed, so unsupported TV providers are skipped instead of breaking app startup.
+- Cloud sign-in now survives Supabase session-import failures on some devices by falling back to the returned JWT identity and caching the raw session tokens for recovery.
 
 ## [1.9.7] - 2026-04-01
 
