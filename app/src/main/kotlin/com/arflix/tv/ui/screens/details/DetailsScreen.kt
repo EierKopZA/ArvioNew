@@ -598,6 +598,7 @@ fun DetailsScreen(
                     usePosterCards = usePosterCards,
                     isMobile = isMobile,
                     onBack = onBack,
+                    malScore = uiState.malScore,
                     onButtonClick = { idx ->
                         when (idx) {
                             0 -> { // Play
@@ -939,6 +940,9 @@ private fun DetailsContent(
     // Persistent back callback used by the phone-layout back button overlay
     // (issue #43). No-op by default so tablet/TV callers don't need to pass it.
     onBack: () -> Unit = {},
+    // MAL community score for anime (issue #45). Plumbed from DetailsUiState.malScore.
+    // Null for non-anime or when Jikan returns no score.
+    malScore: Double? = null,
     onButtonClick: (Int) -> Unit = {},
     onSeasonClick: (Int) -> Unit = {},
     onEpisodeClick: (Int) -> Unit = {},
@@ -1104,8 +1108,7 @@ private fun DetailsContent(
                         // MyAnimeList community score badge for anime only. Populated
                         // asynchronously after details load via Jikan API. Hidden when
                         // the content isn't anime or Jikan returns null. Issue #45.
-                        val malScoreValue = uiState.malScore
-                        if (malScoreValue != null && malScoreValue > 0.0) {
+                        if (malScore != null && malScore > 0.0) {
                             Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1120,7 +1123,7 @@ private fun DetailsContent(
                                     color = Color.White
                                 )
                                 Text(
-                                    text = String.format("%.1f", malScoreValue),
+                                    text = String.format("%.1f", malScore),
                                     style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                                     color = Color.White
                                 )
@@ -1538,8 +1541,7 @@ private fun DetailsContent(
                     }
 
                     // MAL community score badge for anime. Issue #45.
-                    val tvMalScore = uiState.malScore
-                    if (tvMalScore != null && tvMalScore > 0.0) {
+                    if (malScore != null && malScore > 0.0) {
                         Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1554,7 +1556,7 @@ private fun DetailsContent(
                                 color = Color.White
                             )
                             Text(
-                                text = String.format("%.1f", tvMalScore),
+                                text = String.format("%.1f", malScore),
                                 style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
