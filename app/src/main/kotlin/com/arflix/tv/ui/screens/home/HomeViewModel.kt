@@ -66,6 +66,8 @@ data class HomeUiState(
     val heroLogoUrl: String? = null,
     val heroTrailerKey: String? = null,
     val trailerAutoPlay: Boolean = false,
+    // Home hero metadata visibility toggles (issue #72)
+    val showBudget: Boolean = true,
     val heroOverviewOverride: String? = null,
     val cardLogoUrls: Map<String, String> = emptyMap(),
     // Previous hero for crossfade (Phase 2.1)
@@ -640,7 +642,7 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
-        // Load trailer auto-play setting
+        // Load trailer auto-play and show-budget settings
         viewModelScope.launch {
             try {
                 val prefs = context.settingsDataStore.data.first()
@@ -648,7 +650,17 @@ class HomeViewModel @Inject constructor(
                 val trailerEnabled = prefs.asMap().any { (key, value) ->
                     key.name.endsWith("_trailer_auto_play") && value == true
                 }
-                _uiState.value = _uiState.value.copy(trailerAutoPlay = trailerEnabled)
+                // show_budget_on_home defaults to TRUE so existing users see no change
+                // until they explicitly disable it. We check any active-profile key; if
+                // none exist yet the default of true is preserved. Issue #72.
+                val showBudgetExplicit = prefs.asMap().entries
+                    .firstOrNull { (key, _) -> key.name.endsWith("_show_budget_on_home") }
+                    ?.value as? Boolean
+                val showBudget = showBudgetExplicit ?: true
+                _uiState.value = _uiState.value.copy(
+                    trailerAutoPlay = trailerEnabled,
+                    showBudget = showBudget
+                )
             } catch (_: Exception) {}
         }
         // Restore logo URL cache from disk for instant clearlogos on cold start

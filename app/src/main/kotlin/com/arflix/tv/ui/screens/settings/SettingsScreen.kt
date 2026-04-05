@@ -264,7 +264,7 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 13 // General: 14 items
+            0 -> 14 // General: 15 items (added Show Budget toggle for #72)
             1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
@@ -445,7 +445,7 @@ fun SettingsScreen(
                                 Zone.CONTENT -> {
                                     // Dynamic max based on current section
                                     val maxIndex = when (sectionIndex) {
-                                        0 -> 13 // General: 14 items
+                                        0 -> 14 // General: 15 items (added Show Budget toggle for #72)
                                         1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
                                         2 -> uiState.catalogs.size // Catalogs: Add + N catalogs
                                         3 -> uiState.addons.size // Addons: N addons + "Add Custom" button
@@ -498,7 +498,8 @@ fun SettingsScreen(
                                                 10 -> viewModel.toggleCardLayoutMode()
                                                 11 -> openUiModeWarningDialog()
                                                 12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                13 -> openDnsProviderPicker()
+                                                13 -> viewModel.setShowBudget(!uiState.showBudget)
+                                                14 -> openDnsProviderPicker()
                                             }
                                         }
                                         1 -> { // IPTV
@@ -627,6 +628,7 @@ fun SettingsScreen(
                             subtitleColor = uiState.subtitleColor,
                             deviceModeOverride = uiState.deviceModeOverride,
                             skipProfileSelection = uiState.skipProfileSelection,
+                            showBudget = uiState.showBudget,
                             focusedIndex = -1,
                             onSubtitleClick = openSubtitlePicker,
                             onAudioLanguageClick = openAudioLanguagePicker,
@@ -642,6 +644,7 @@ fun SettingsScreen(
                             onContentLanguageClick = openContentLanguagePicker,
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
+                            onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
                         )
                         "iptv" -> IptvSettings(
@@ -796,6 +799,7 @@ fun SettingsScreen(
                             subtitleColor = uiState.subtitleColor,
                             deviceModeOverride = uiState.deviceModeOverride,
                             skipProfileSelection = uiState.skipProfileSelection,
+                            showBudget = uiState.showBudget,
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
                             onSubtitleClick = openSubtitlePicker,
                             onAudioLanguageClick = openAudioLanguagePicker,
@@ -810,6 +814,7 @@ fun SettingsScreen(
                             onDeviceModeClick = openUiModeWarningDialog,
                             onContentLanguageClick = openContentLanguagePicker,
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
+                            onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
                         )
@@ -2134,6 +2139,7 @@ private fun GeneralSettings(
     subtitleColor: String = "White",
     deviceModeOverride: String = "auto",
     skipProfileSelection: Boolean = false,
+    showBudget: Boolean = true,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
     onAudioLanguageClick: () -> Unit,
@@ -2146,6 +2152,7 @@ private fun GeneralSettings(
     onDeviceModeClick: () -> Unit = {},
     onContentLanguageClick: () -> Unit = {},
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
+    onShowBudgetToggle: (Boolean) -> Unit = {},
     trailerAutoPlay: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
@@ -2295,6 +2302,16 @@ private fun GeneralSettings(
             isFocused = focusedIndex == 12,
             onToggle = onSkipProfileSelectionToggle
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        // Home hero controls — issue #72. The movie Budget line on the hero banner
+        // makes the metadata row noisy on small screens and some users want to hide it.
+        SettingsToggleRow(
+            title = "Show Budget on Home",
+            subtitle = "Display the movie budget on the home hero banner",
+            isEnabled = showBudget,
+            isFocused = focusedIndex == 13,
+            onToggle = onShowBudgetToggle
+        )
 
         // ── Network ──
         Spacer(modifier = Modifier.height(24.dp))
@@ -2310,7 +2327,7 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onDnsProviderClick
         )
     }

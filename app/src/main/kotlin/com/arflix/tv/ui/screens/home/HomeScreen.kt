@@ -625,6 +625,7 @@ fun HomeScreen(
             heroOverviewOverride = displayHeroOverview,
             contentStartPadding = contentStartPadding,
             isMobile = isMobile,
+            showBudget = uiState.showBudget,
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToTv = { channelId, streamUrl -> onNavigateToTv(channelId, streamUrl) },
             isIptvItem = { item -> viewModel.isIptvItem(item) },
@@ -733,6 +734,11 @@ private fun HeroSection(
     item: MediaItem,
     logoUrl: String?,
     overviewOverride: String? = null,
+    // Hide the Budget line on the hero metadata row when false. Plumbed from
+    // HomeUiState.showBudget, which is loaded from the per-profile
+    // `show_budget_on_home` DataStore key and defaults to true so existing
+    // users see no behavior change. Issue #72.
+    showBudget: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -994,7 +1000,10 @@ private fun HeroSection(
                         }
                     }
 
-                    if (!budgetText.isNullOrBlank()) {
+                    // Budget line can be hidden via Settings -> General -> Show Budget on Home.
+                    // Default is shown (showBudget = true) to preserve existing behavior.
+                    // Issue #72.
+                    if (showBudget && !budgetText.isNullOrBlank()) {
                         if (displayDate.isNotEmpty() || hasGenre || hasDuration || ratingValue > 0f) {
                             Text(
                                 text = "|",
@@ -1070,6 +1079,7 @@ private fun HomeHeroLayer(
     heroOverviewOverride: String?,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     isMobile: Boolean = false,
+    showBudget: Boolean = true,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
     isIptvItem: (MediaItem) -> Boolean = { false },
@@ -1098,6 +1108,7 @@ private fun HomeHeroLayer(
                     item = item,
                     logoUrl = heroLogoUrl,
                     overviewOverride = heroOverviewOverride,
+                    showBudget = showBudget,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = contentStartPadding, end = 400.dp)

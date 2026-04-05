@@ -77,6 +77,7 @@ data class SettingsUiState(
     val subtitleSize: String = "Medium",
     val subtitleColor: String = "White",
     val trailerAutoPlay: Boolean = false,
+    val showBudget: Boolean = true,
     val includeSpecials: Boolean = false,
     val isLoggedIn: Boolean = false,
     val accountEmail: String? = null,
@@ -178,6 +179,7 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
     private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
     private fun trailerAutoPlayKey() = profileManager.profileBooleanKey("trailer_auto_play")
+    private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
 
     private fun subtitleSizeKey() = profileManager.profileStringKey("subtitle_size")
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
@@ -265,6 +267,7 @@ class SettingsViewModel @Inject constructor(
             }
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
+            val showBudget = prefs[showBudgetKey()] ?: true
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
@@ -304,6 +307,7 @@ class SettingsViewModel @Inject constructor(
                 autoPlaySingleSource = autoPlaySingleSource,
                 autoPlayMinQuality = autoPlayMinQuality,
                 trailerAutoPlay = trailerAutoPlay,
+                showBudget = showBudget,
 
                 subtitleSize = subtitleSize,
                 subtitleColor = subtitleColor,
@@ -782,6 +786,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerAutoPlay(enabled: Boolean) {
         viewModelScope.launch { context.settingsDataStore.edit { it[trailerAutoPlayKey()] = enabled }; _uiState.value = _uiState.value.copy(trailerAutoPlay = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun setShowBudget(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[showBudgetKey()] = enabled }
+            _uiState.value = _uiState.value.copy(showBudget = enabled)
+            syncLocalStateToCloud(silent = true)
+        }
     }
 
     fun cycleSubtitleSize() {
