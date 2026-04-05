@@ -994,7 +994,10 @@ private fun HeroSection(
                         }
                     }
 
-                    if (!budgetText.isNullOrBlank()) {
+                    // Budget line can be hidden via Settings → General → Show Budget on Home.
+                    // Default is shown (uiState.showBudget = true) to preserve existing behavior.
+                    // Issue #72.
+                    if (uiState.showBudget && !budgetText.isNullOrBlank()) {
                         if (displayDate.isNotEmpty() || hasGenre || hasDuration || ratingValue > 0f) {
                             Text(
                                 text = "|",
