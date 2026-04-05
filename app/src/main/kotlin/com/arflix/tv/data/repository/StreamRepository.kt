@@ -249,6 +249,25 @@ class StreamRepository @Inject constructor(
             val resolvedName = customName?.trim()?.takeIf { it.isNotBlank() } ?: manifest.name
             val addonId = buildAddonInstanceId(manifest.id, normalizedUrl)
 
+            // Classify the addon based on the resources its manifest declares.
+            // - If it declares `subtitles` but NOT `stream`, it's a pure subtitle addon
+            //   (e.g. Wizdom, Ktuvit) and gets AddonType.SUBTITLE so the subtitle fetcher
+            //   picks it up and the stream resolver correctly ignores it.
+            // - If it declares `stream` (with or without subtitles), keep it as CUSTOM so
+            //   the stream resolver queries it. The subtitle fetcher has been updated
+            //   separately to also include CUSTOM addons whose manifest declares a
+            //   subtitles resource, so hybrid addons still get queried for both.
+            // - Everything else stays CUSTOM, matching the previous default.
+            // Fixes issue #80 where Wizdom/Ktuvit were installed but never queried because
+            // every user-added addon was hardcoded to CUSTOM regardless of its manifest.
+            val resourceNames = addonManifest.resources.map { it.name }.toSet()
+            val hasSubtitles = "subtitles" in resourceNames
+            val hasStream = "stream" in resourceNames
+            val addonType = when {
+                hasSubtitles && !hasStream -> AddonType.SUBTITLE
+                else -> AddonType.CUSTOM
+            }
+
             val newAddon = Addon(
                 id = addonId,
                 name = resolvedName,
@@ -256,7 +275,7 @@ class StreamRepository @Inject constructor(
                 description = manifest.description ?: "",
                 isInstalled = true,
                 isEnabled = true,
-                type = AddonType.CUSTOM,
+                type = addonType,
                 url = normalizedUrl,
                 logo = manifest.logo,
                 manifest = addonManifest,
@@ -1336,7 +1355,26 @@ class StreamRepository @Inject constructor(
         stream: StreamSource?
     ): List<Subtitle> = withContext(Dispatchers.IO) {
         val allAddons = installedAddons.first()
-        val subtitleAddons = allAddons.filter { it.isInstalled && it.isEnabled && it.type == AddonType.SUBTITLE }
+        // Include:
+        // - Addons classified as AddonType.SUBTITLE (OpenSubtitles and, going forward,
+        //   any user-added pure-subtitle addon like Wizdom/Ktuvit now that addCustomAddon
+        //   classifies them correctly).
+        // - Addons classified as CUSTOM whose manifest declares a `subtitles` resource.
+        //   This covers two cases: (a) addons installed before the classification fix
+        //   landed, which are still stored as CUSTOM; (b) hybrid addons that provide
+        //   both streams and subtitles. Both should be queried for subtitles.
+        // Fixes issue #80.
+        val subtitleAddons = allAddons.filter { addon ->
+            if (!addon.isInstalled || !addon.isEnabled) return@filter false
+            if (addon.type == AddonType.SUBTITLE) return@filter true
+            if (addon.type == AddonType.CUSTOM) {
+                val declaresSubtitles = addon.manifest?.resources?.any { res ->
+                    res.name.equals("subtitles", ignoreCase = true)
+                } == true
+                return@filter declaresSubtitles
+            }
+            false
+        }
 
         val videoHash = stream?.behaviorHints?.videoHash?.trim().takeUnless { it.isNullOrBlank() }
         val videoSize = stream?.behaviorHints?.videoSize?.takeIf { it != null && it > 0L }
