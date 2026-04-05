@@ -106,6 +106,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -1483,24 +1484,10 @@ fun PlayerScreen(
                                 } else {
                                     // Audio selection
                                     audioTracks.getOrNull(subtitleMenuIndex)?.let { track ->
-                                        // Switch audio track via ExoPlayer
-                                        val params = exoPlayer.trackSelectionParameters.buildUpon()
-                                        params.setPreferredAudioLanguage(track.language)
-                                        val trackGroups = exoPlayer.currentTracks.groups
-                                        if (track.groupIndex < trackGroups.size &&
-                                            trackGroups[track.groupIndex].type == C.TRACK_TYPE_AUDIO
-                                        ) {
-                                            params.setOverrideForType(
-                                                androidx.media3.common.TrackSelectionOverride(
-                                                    trackGroups[track.groupIndex].mediaTrackGroup,
-                                                    track.trackIndex
-                                                )
-                                            )
+                                        // Defensive track-selection — see applyAudioTrackSelection.
+                                        applyAudioTrackSelection(exoPlayer, track, audioTracks)?.let {
+                                            selectedAudioIndex = it
                                         }
-                                        exoPlayer.trackSelectionParameters = params.build()
-                                        selectedAudioIndex = audioTracks.indexOfFirst {
-                                            it.groupIndex == track.groupIndex && it.trackIndex == track.trackIndex
-                                        }.takeIf { it >= 0 } ?: track.index
                                     }
                                 }
                                 showSubtitleMenu = false
@@ -2073,24 +2060,12 @@ fun PlayerScreen(
                     }
                 },
                 onSelectAudio = { track ->
-                    // Switch audio track via ExoPlayer
-                    val params = exoPlayer.trackSelectionParameters.buildUpon()
-                    params.setPreferredAudioLanguage(track.language)
-                    val trackGroups = exoPlayer.currentTracks.groups
-                    if (track.groupIndex < trackGroups.size &&
-                        trackGroups[track.groupIndex].type == C.TRACK_TYPE_AUDIO
-                    ) {
-                        params.setOverrideForType(
-                            androidx.media3.common.TrackSelectionOverride(
-                                trackGroups[track.groupIndex].mediaTrackGroup,
-                                track.trackIndex
-                            )
-                        )
+                    // Defensive track-selection — validates group + track bounds and
+                    // swallows IllegalArgumentException from stale indices after a
+                    // player re-prepare. Fixes crash reported in issue #89.
+                    applyAudioTrackSelection(exoPlayer, track, audioTracks)?.let {
+                        selectedAudioIndex = it
                     }
-                    exoPlayer.trackSelectionParameters = params.build()
-                    selectedAudioIndex = audioTracks.indexOfFirst {
-                        it.groupIndex == track.groupIndex && it.trackIndex == track.trackIndex
-                    }.takeIf { it >= 0 } ?: track.index
                     showSubtitleMenu = false
                     showControls = true
                     // Restore focus to subtitle button after closing menu
@@ -2478,6 +2453,73 @@ data class AudioTrackInfo(
     val sampleRate: Int,
     val codec: String?
 )
+
+/**
+ * Apply an audio-track selection to the player defensively.
+ *
+ * The stored [AudioTrackInfo] captures `groupIndex` / `trackIndex` at the moment the
+ * `onTracksChanged` listener fires. Between that moment and the user actually picking
+ * a track from the menu, the player may have re-prepared (e.g. adaptive stream switch,
+ * source reselection, MediaItem rebuild for a new external subtitle), and the current
+ * `exoPlayer.currentTracks.groups` layout may no longer match those indices. Calling
+ * `TrackSelectionOverride(group, trackIndex)` with a stale `trackIndex >= group.length`
+ * throws `IllegalArgumentException` inside Media3 and crashes the player.
+ *
+ * This helper wraps the selection in try/catch, validates every index before use, and
+ * clears any existing audio override before applying the new one so stale overrides
+ * from prior selections don't pin the player to a no-longer-present track. Fixes #89.
+ *
+ * @return the index in [audioTracks] that was actually applied, or `null` if the
+ *         selection could not be applied (caller should leave the previous index).
+ */
+private fun applyAudioTrackSelection(
+    exoPlayer: ExoPlayer,
+    track: AudioTrackInfo,
+    audioTracks: List<AudioTrackInfo>
+): Int? {
+    return try {
+        val params = exoPlayer.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .setPreferredAudioLanguage(track.language)
+
+        val trackGroups = exoPlayer.currentTracks.groups
+        val groupInRange = track.groupIndex in trackGroups.indices
+        if (groupInRange) {
+            val group = trackGroups[track.groupIndex]
+            val isAudioGroup = group.type == C.TRACK_TYPE_AUDIO
+            val trackInRange = track.trackIndex in 0 until group.length
+            if (isAudioGroup && trackInRange) {
+                params.setOverrideForType(
+                    TrackSelectionOverride(
+                        group.mediaTrackGroup,
+                        track.trackIndex
+                    )
+                )
+            }
+            // If the group is stale we still fall through and apply the
+            // preferredAudioLanguage hint above — Media3 will pick the closest
+            // matching track on its own rather than crashing.
+        }
+
+        exoPlayer.trackSelectionParameters = params.build()
+
+        audioTracks.indexOfFirst {
+            it.groupIndex == track.groupIndex && it.trackIndex == track.trackIndex
+        }.takeIf { it >= 0 } ?: track.index
+    } catch (e: IllegalArgumentException) {
+        // Stale track/group index after a player re-prepare. Leave the current
+        // selection alone instead of crashing; user can retry the menu.
+        android.util.Log.w("PlayerScreen", "applyAudioTrackSelection rejected stale index: ${e.message}")
+        null
+    } catch (e: IllegalStateException) {
+        // Player released or in an invalid state.
+        android.util.Log.w("PlayerScreen", "applyAudioTrackSelection on invalid player: ${e.message}")
+        null
+    } catch (e: Exception) {
+        android.util.Log.e("PlayerScreen", "applyAudioTrackSelection unexpected error", e)
+        null
+    }
+}
 
 /**
  * Language code to full name mapping
