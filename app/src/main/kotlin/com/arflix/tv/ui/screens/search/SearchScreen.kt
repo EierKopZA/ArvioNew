@@ -345,6 +345,12 @@ fun SearchScreen(
                 }
             }
         }
+
+        // Persistent back button for phone users (hidden on tablet/TV). Issue #43.
+        com.arflix.tv.ui.components.MobileBackButton(
+            onBack = onBack,
+            modifier = Modifier.align(Alignment.TopStart)
+        )
     }
 }
 

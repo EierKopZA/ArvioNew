@@ -1272,6 +1272,14 @@ private fun DetailsContent(
                 // Bottom spacing
                 Spacer(modifier = Modifier.height(32.dp))
             }
+
+            // Persistent back button for phone users (hidden on tablet/TV).
+            // Sits on top of the scrolling Column so it's always reachable even
+            // when the system nav bar auto-hides. Issue #43.
+            com.arflix.tv.ui.components.MobileBackButton(
+                onBack = onBack,
+                modifier = Modifier.align(Alignment.TopStart)
+            )
         }
         return
     }

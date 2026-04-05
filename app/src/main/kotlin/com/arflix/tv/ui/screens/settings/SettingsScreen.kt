@@ -1130,6 +1130,14 @@ fun SettingsScreen(
                 onDismiss = { viewModel.dismissToast() }
             )
         }
+
+        // Persistent back button for phone users (hidden on tablet/TV).
+        // Always visible in the top-start corner even when the system nav bar
+        // auto-hides. Issue #43.
+        com.arflix.tv.ui.components.MobileBackButton(
+            onBack = onBack,
+            modifier = Modifier.align(Alignment.TopStart)
+        )
     }
 }
 
