@@ -128,6 +128,7 @@ import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.ui.components.LoadingIndicator
+import com.arflix.tv.ui.components.NextEpisodeOverlay
 import com.arflix.tv.ui.components.StreamSelector
 import com.arflix.tv.ui.components.WaveLoadingDots
 import androidx.compose.ui.text.style.TextOverflow
@@ -244,6 +245,16 @@ fun PlayerScreen(
     var focusedButton by remember { mutableIntStateOf(0) }
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var showSourceMenu by remember { mutableStateOf(false) }
+    // Post-episode "Up Next" prompt (issue #86). Shown on STATE_ENDED for TV shows:
+    // a 10-second countdown lets the user Cancel or immediately Continue. On timeout we
+    // advance to the next episode. Gated on the existing autoPlayNext profile setting —
+    // when disabled we simply stay on the ended frame rather than advancing silently.
+    var showNextEpisodePrompt by remember { mutableStateOf(false) }
+    var pendingNextSeason by remember { mutableIntStateOf(0) }
+    var pendingNextEpisode by remember { mutableIntStateOf(0) }
+    var pendingNextAddonId by remember { mutableStateOf<String?>(null) }
+    var pendingNextSourceName by remember { mutableStateOf<String?>(null) }
+    var pendingNextBingeGroup by remember { mutableStateOf<String?>(null) }
     var playerResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var subtitleMenuIndex by remember { mutableIntStateOf(0) }
     var subtitleMenuTab by remember { mutableIntStateOf(0) } // 0 = Subtitles, 1 = Audio
@@ -1247,17 +1258,26 @@ fun PlayerScreen(
 
             }
 
-            // Auto-play next episode when current one ends
-            if (exoPlayer.playbackState == Player.STATE_ENDED && mediaType == MediaType.TV) {
-                if (seasonNumber != null && episodeNumber != null) {
+            // Post-episode prompt: when a TV episode ends, show the "Up Next" overlay with a
+            // 10-second countdown that auto-advances (or lets the user cancel / continue
+            // immediately). Gated on the profile's autoPlayNext setting — when disabled we
+            // stay on the ended frame rather than silently advancing. Only trigger once per
+            // session (showNextEpisodePrompt guard) to avoid re-triggering on tick loops.
+            if (exoPlayer.playbackState == Player.STATE_ENDED &&
+                mediaType == MediaType.TV &&
+                !showNextEpisodePrompt &&
+                !showSourceMenu &&
+                !showSubtitleMenu &&
+                uiState.error == null
+            ) {
+                if (seasonNumber != null && episodeNumber != null && uiState.autoPlayNext) {
                     val selected = uiState.selectedStream
-                    onPlayNext(
-                        seasonNumber,
-                        episodeNumber + 1,
-                        selected?.addonId?.takeIf { it.isNotBlank() },
-                        selected?.source?.takeIf { it.isNotBlank() },
-                        selected?.behaviorHints?.bingeGroup?.takeIf { it.isNotBlank() }
-                    )
+                    pendingNextSeason = seasonNumber
+                    pendingNextEpisode = episodeNumber + 1
+                    pendingNextAddonId = selected?.addonId?.takeIf { it.isNotBlank() }
+                    pendingNextSourceName = selected?.source?.takeIf { it.isNotBlank() }
+                    pendingNextBingeGroup = selected?.behaviorHints?.bingeGroup?.takeIf { it.isNotBlank() }
+                    showNextEpisodePrompt = true
                 }
             }
 
@@ -1305,8 +1325,8 @@ fun PlayerScreen(
     }
 
     // Request focus on the container when not showing controls
-    LaunchedEffect(showControls, showSubtitleMenu, showSourceMenu, uiState.error) {
-        if (!showControls && !showSubtitleMenu && !showSourceMenu && uiState.error == null) {
+    LaunchedEffect(showControls, showSubtitleMenu, showSourceMenu, showNextEpisodePrompt, uiState.error) {
+        if (!showControls && !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null) {
             delay(100)
             try {
                 containerFocusRequester.requestFocus()
@@ -2148,6 +2168,39 @@ fun PlayerScreen(
                     delay(150)
                     runCatching { sourceButtonFocusRequester.requestFocus() }
                 }
+            }
+        )
+
+        // Post-episode "Up Next" prompt (issue #86). Shown when a TV episode ends and
+        // autoPlayNext is enabled. 10-second countdown auto-advances, or the user can
+        // hit Enter to continue immediately or Back/Escape/Close to cancel and stay on
+        // the ended frame. Placed after StreamSelector so it renders above the player
+        // but below any error/source overlays that might appear simultaneously.
+        NextEpisodeOverlay(
+            isVisible = showNextEpisodePrompt,
+            showTitle = uiState.title,
+            // We only know the current episode's title at this point; fetching the next
+            // episode's metadata would require an extra TMDB round-trip during playback.
+            // Fall back to a generic "Episode N" label — the show title, S/E number, and
+            // backdrop image still give users enough context to decide Continue/Cancel.
+            episodeTitle = "Episode $pendingNextEpisode",
+            seasonNumber = pendingNextSeason,
+            episodeNumber = pendingNextEpisode,
+            episodeImage = uiState.backdropUrl,
+            countdownSeconds = 10,
+            onPlayNext = {
+                showNextEpisodePrompt = false
+                onPlayNext(
+                    pendingNextSeason,
+                    pendingNextEpisode,
+                    pendingNextAddonId,
+                    pendingNextSourceName,
+                    pendingNextBingeGroup
+                )
+            },
+            onCancel = {
+                showNextEpisodePrompt = false
+                // Stay on the ended frame — user can hit Back to leave the player.
             }
         )
 

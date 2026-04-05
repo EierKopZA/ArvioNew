@@ -60,6 +60,10 @@ data class PlayerUiState(
     val subtitleColor: String = "White",
     val error: String? = null,
     val isSetupError: Boolean = false, // true when error is due to missing addons (shows friendly guide instead of red error)
+    // Auto-play next episode at end of current one. Mirrors the profile-scoped
+    // "auto_play_next" DataStore setting so the player can respect the toggle
+    // and so the post-episode overlay can show a Continue/Cancel prompt.
+    val autoPlayNext: Boolean = true,
     // Skip intro/recap
     val activeSkipInterval: SkipInterval? = null,
     val skipIntervalDismissed: Boolean = false
@@ -177,13 +181,15 @@ class PlayerViewModel @Inject constructor(
             val frameRateMatchingMode = resolveFrameRateMatchingMode()
             val subSize = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_size")] ?: "Medium"
             val subColor = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_color")] ?: "White"
+            val autoPlayNext = context.settingsDataStore.data.first()[profileManager.profileBooleanKey("auto_play_next")] ?: true
             _uiState.value = PlayerUiState(
                 isLoading = true,
                 isLoadingStreams = true,
                 preferredAudioLanguage = preferredAudioLanguage,
                 frameRateMatchingMode = frameRateMatchingMode,
                 subtitleSize = subSize,
-                subtitleColor = subColor
+                subtitleColor = subColor,
+                autoPlayNext = autoPlayNext
             )
 
             // If stream URL provided, use it directly (except magnet links, which require resolution).
