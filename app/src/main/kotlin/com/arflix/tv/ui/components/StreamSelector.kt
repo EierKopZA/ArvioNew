@@ -935,8 +935,8 @@ private fun GlassyStreamCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Quality badge
-                CompactQualityBadge(stream.quality)
+                // Quality badge (resolution + HDR/DV/IMAX detection from full stream metadata)
+                CompactQualityBadge(stream)
 
                 // Size
                 if (stream.size.isNotEmpty()) {
@@ -1007,14 +1007,34 @@ private fun FilterTab(
     }
 }
 
+// Pre-compiled badge detection regexes. All use word boundaries to avoid matching
+// "DV" inside "DVD" or "HDVD" (the long-standing bug that made the DV badge appear
+// on SD DVDrip sources). IMAX detection was missing entirely before issue #118.
+private val DV_REGEX = Regex("""\b(DV|DoVi|Dolby[\s._-]*Vision)\b""", RegexOption.IGNORE_CASE)
+private val HDR_REGEX = Regex("""\bHDR(10\+?|10)?\b""", RegexOption.IGNORE_CASE)
+private val IMAX_REGEX = Regex("""\bIMAX\b""", RegexOption.IGNORE_CASE)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun CompactQualityBadge(quality: String) {
+private fun CompactQualityBadge(stream: StreamSource) {
+    // IMAX and DV tokens are almost always in the filename / source title, not the
+    // pre-extracted `quality` string. Combine all fields we have so detection works
+    // regardless of where the token lives. This fixes issue #118.
+    val searchBlob = buildString {
+        append(stream.quality)
+        append(' ')
+        append(stream.source)
+        append(' ')
+        append(stream.behaviorHints?.filename.orEmpty())
+    }
+
+    val quality = stream.quality
     val is4K = quality.contains("4K", ignoreCase = true) || quality.contains("2160p")
     val is1080 = quality.contains("1080p")
     val is720 = quality.contains("720p")
-    val isHDR = quality.contains("HDR", ignoreCase = true)
-    val isDV = quality.contains("DV", ignoreCase = true) || quality.contains("Dolby Vision", ignoreCase = true)
+    val isHDR = HDR_REGEX.containsMatchIn(searchBlob)
+    val isDV = DV_REGEX.containsMatchIn(searchBlob)
+    val isIMAX = IMAX_REGEX.containsMatchIn(searchBlob)
 
     val displayText = when {
         is4K -> "4K"
@@ -1076,6 +1096,26 @@ private fun CompactQualityBadge(quality: String) {
                         fontWeight = FontWeight.Black
                     ),
                     color = Color(0xFFEC4899)
+                )
+            }
+        }
+
+        if (isIMAX) {
+            // IMAX badge — distinctive cyan/blue to stand out from HDR (purple) and DV (pink).
+            // Requested in issue #118 as a premium format that deserves its own badge
+            // since users scan the source list for IMAX-tagged releases.
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF06B6D4).copy(alpha = 0.18f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "IMAX",
+                    style = ArflixTypography.caption.copy(
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = Color(0xFF06B6D4)
                 )
             }
         }
