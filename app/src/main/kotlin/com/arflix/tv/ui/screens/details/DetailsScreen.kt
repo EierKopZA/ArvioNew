@@ -1101,6 +1101,31 @@ private fun DetailsContent(
                                 )
                             }
                         }
+                        // MyAnimeList community score badge for anime only. Populated
+                        // asynchronously after details load via Jikan API. Hidden when
+                        // the content isn't anime or Jikan returns null. Issue #45.
+                        val malScoreValue = uiState.malScore
+                        if (malScoreValue != null && malScoreValue > 0.0) {
+                            Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier
+                                    .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "MAL",
+                                    style = ArflixTypography.caption.copy(fontSize = 8.sp, fontWeight = FontWeight.Black),
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = String.format("%.1f", malScoreValue),
+                                    style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                    color = Color.White
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1508,6 +1533,30 @@ private fun DetailsContent(
                                 text = rating,
                                 style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                                 color = Color.Black
+                            )
+                        }
+                    }
+
+                    // MAL community score badge for anime. Issue #45.
+                    val tvMalScore = uiState.malScore
+                    if (tvMalScore != null && tvMalScore > 0.0) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "MAL",
+                                style = ArflixTypography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
+                                color = Color.White
+                            )
+                            Text(
+                                text = String.format("%.1f", tvMalScore),
+                                style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                color = Color.White
                             )
                         }
                     }
