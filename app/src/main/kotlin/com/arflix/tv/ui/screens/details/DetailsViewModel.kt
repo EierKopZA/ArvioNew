@@ -490,10 +490,20 @@ class DetailsViewModel @Inject constructor(
                         }
 
                         val targetEpisodeForRow = if (initialSeason == seasonToLoad) initialEpisode else null
-                        val initialEpisodeIndex = if (targetEpisodeForRow != null) {
-                            decoratedEpisodes.indexOfFirst { it.episodeNumber == targetEpisodeForRow }.coerceAtLeast(0)
-                        } else 0
                         val nextUnwatchedEpisode = decoratedEpisodes.firstOrNull { !it.isWatched }
+                        // Focus the explicit target episode if the caller passed one (deeplink /
+                        // Continue Watching tile), otherwise focus the first unwatched episode so
+                        // users don't have to scroll past every episode they've already seen.
+                        // When every episode in the current season is watched we fall back to
+                        // the first episode (index 0) — from there the user can jump to the next
+                        // season via the season selector. See issue #117.
+                        val initialEpisodeIndex = when {
+                            targetEpisodeForRow != null ->
+                                decoratedEpisodes.indexOfFirst { it.episodeNumber == targetEpisodeForRow }.coerceAtLeast(0)
+                            nextUnwatchedEpisode != null ->
+                                decoratedEpisodes.indexOf(nextUnwatchedEpisode).coerceAtLeast(0)
+                            else -> 0
+                        }
                         val hasWatchedEpisodes = decoratedEpisodes.any { it.isWatched }
                         updateState { state ->
                             val shouldUseEpisodeTarget = !hasExplicitEpisodeTarget &&
