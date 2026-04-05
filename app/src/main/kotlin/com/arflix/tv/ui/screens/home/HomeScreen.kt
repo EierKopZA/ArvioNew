@@ -733,6 +733,11 @@ private fun HeroSection(
     item: MediaItem,
     logoUrl: String?,
     overviewOverride: String? = null,
+    // Hide the Budget line on the hero metadata row when false. Plumbed from
+    // HomeUiState.showBudget, which is loaded from the per-profile
+    // `show_budget_on_home` DataStore key and defaults to true so existing
+    // users see no behavior change. Issue #72.
+    showBudget: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -994,10 +999,10 @@ private fun HeroSection(
                         }
                     }
 
-                    // Budget line can be hidden via Settings → General → Show Budget on Home.
-                    // Default is shown (uiState.showBudget = true) to preserve existing behavior.
+                    // Budget line can be hidden via Settings -> General -> Show Budget on Home.
+                    // Default is shown (showBudget = true) to preserve existing behavior.
                     // Issue #72.
-                    if (uiState.showBudget && !budgetText.isNullOrBlank()) {
+                    if (showBudget && !budgetText.isNullOrBlank()) {
                         if (displayDate.isNotEmpty() || hasGenre || hasDuration || ratingValue > 0f) {
                             Text(
                                 text = "|",
@@ -1101,6 +1106,7 @@ private fun HomeHeroLayer(
                     item = item,
                     logoUrl = heroLogoUrl,
                     overviewOverride = heroOverviewOverride,
+                    showBudget = uiState.showBudget,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = contentStartPadding, end = 400.dp)
