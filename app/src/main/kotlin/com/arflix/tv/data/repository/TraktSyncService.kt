@@ -70,6 +70,8 @@ class TraktSyncService @Inject constructor(
     private val _syncEvents = MutableSharedFlow<SyncStatus>(extraBufferCapacity = 1)
     val syncEvents: SharedFlow<SyncStatus> = _syncEvents.asSharedFlow()
 
+    private val supabaseAuthMutex = Mutex()
+
     // Profile-scoped DataStore keys (must match TraktRepository for token sharing)
     private fun accessTokenKey() = profileManager.profileStringKey("trakt_access_token")
     private fun refreshTokenKey() = profileManager.profileStringKey("trakt_refresh_token")
@@ -1428,21 +1430,29 @@ class TraktSyncService @Inject constructor(
 
         if (stale.isEmpty()) return
 
-        stale.forEach { record ->
-            try {
-                executeSupabaseCall("delete stale playback") { auth ->
-                    supabaseApi.deleteWatchHistory(
-                        auth = auth,
-                        userId = "eq.$userId",
-                        showTmdbId = record.showTmdbId?.let { "eq.$it" },
-                        mediaType = "eq.${record.mediaType}",
-                        season = record.season?.let { "eq.$it" },
-                        episode = record.episode?.let { "eq.$it" },
-                        source = "eq.${profileHistorySource("trakt")}"
-                    )
+        val semaphore = Semaphore(5)
+        coroutineScope {
+            stale.map { record ->
+                async {
+                    semaphore.withPermit {
+                        try {
+                            executeSupabaseCall("delete stale playback") { auth ->
+                                supabaseApi.deleteWatchHistory(
+                                    auth = auth,
+                                    userId = "eq.$userId",
+                                    showTmdbId = record.showTmdbId?.let { "eq.$it" },
+                                    mediaType = "eq.${record.mediaType}",
+                                    season = record.season?.let { "eq.$it" },
+                                    episode = record.episode?.let { "eq.$it" },
+                                    source = "eq.${profileHistorySource("trakt")}"
+                                )
+                            }
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-            }
+            }.awaitAll()
         }
 
     }
@@ -1654,7 +1664,9 @@ class TraktSyncService @Inject constructor(
         // Try getting auth, force-refresh if initial attempt fails
         var auth = getSupabaseAuth()
         if (auth == null) {
-            val refreshed = authRepository.refreshAccessToken()
+            val refreshed = supabaseAuthMutex.withLock {
+                authRepository.refreshAccessToken()
+            }
             auth = if (!refreshed.isNullOrBlank()) "Bearer $refreshed" else null
         }
         if (auth == null) throw IllegalStateException("Supabase auth failed")
@@ -1662,7 +1674,9 @@ class TraktSyncService @Inject constructor(
             block(auth)
         } catch (e: HttpException) {
             if (e.code() == 401) {
-                val refreshed = authRepository.refreshAccessToken()
+                val refreshed = supabaseAuthMutex.withLock {
+                    authRepository.refreshAccessToken()
+                }
                 if (!refreshed.isNullOrBlank()) {
                     return block("Bearer $refreshed")
                 }
