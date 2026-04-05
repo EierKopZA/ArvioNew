@@ -625,6 +625,7 @@ fun HomeScreen(
             heroOverviewOverride = displayHeroOverview,
             contentStartPadding = contentStartPadding,
             isMobile = isMobile,
+            showBudget = uiState.showBudget,
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToTv = { channelId, streamUrl -> onNavigateToTv(channelId, streamUrl) },
             isIptvItem = { item -> viewModel.isIptvItem(item) },
@@ -1078,6 +1079,7 @@ private fun HomeHeroLayer(
     heroOverviewOverride: String?,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     isMobile: Boolean = false,
+    showBudget: Boolean = true,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
     isIptvItem: (MediaItem) -> Boolean = { false },
@@ -1106,7 +1108,7 @@ private fun HomeHeroLayer(
                     item = item,
                     logoUrl = heroLogoUrl,
                     overviewOverride = heroOverviewOverride,
-                    showBudget = uiState.showBudget,
+                    showBudget = showBudget,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = contentStartPadding, end = 400.dp)
