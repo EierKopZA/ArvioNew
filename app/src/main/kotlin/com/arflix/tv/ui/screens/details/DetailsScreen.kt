@@ -597,6 +597,7 @@ fun DetailsScreen(
                     contentHasFocus = !isSidebarFocused,
                     usePosterCards = usePosterCards,
                     isMobile = isMobile,
+                    onBack = onBack,
                     onButtonClick = { idx ->
                         when (idx) {
                             0 -> { // Play
@@ -935,6 +936,9 @@ private fun DetailsContent(
     contentHasFocus: Boolean = true,
     usePosterCards: Boolean = false,
     isMobile: Boolean = false,
+    // Persistent back callback used by the phone-layout back button overlay
+    // (issue #43). No-op by default so tablet/TV callers don't need to pass it.
+    onBack: () -> Unit = {},
     onButtonClick: (Int) -> Unit = {},
     onSeasonClick: (Int) -> Unit = {},
     onEpisodeClick: (Int) -> Unit = {},
