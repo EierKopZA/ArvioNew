@@ -85,7 +85,8 @@ class TraktSyncServiceBenchmarkTest {
         println("Simulated Network Latency: ${networkDelay}ms per call")
         println("Old N+1 Method Time: ${timeOldMethod}ms")
         println("New Batching Method Time: ${timeNewMethod}ms")
-        println("Speedup: ${timeOldMethod / timeNewMethod.toFloat()}x")
+        val speedup = if (timeNewMethod > 0) "${timeOldMethod / timeNewMethod.toFloat()}x" else "∞"
+        println("Speedup: $speedup")
         println("--------------------------------------------------")
 
         // Verify that the new method actually made the right number of calls
