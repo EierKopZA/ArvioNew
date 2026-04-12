@@ -1719,39 +1719,64 @@ class StreamRepository @Inject constructor(
             .readTimeout(1500, TimeUnit.MILLISECONDS)
             .build()
 
-        for (base in candidates) {
-            for (path in endpointPaths) {
-                val url = base + path
-                val isM3uEndpoint = path.contains("m3u", ignoreCase = true)
-
-                if (isM3uEndpoint) {
-                    val request = Request.Builder().url(url).get().build()
-                    val response = runCatching { client.newCall(request).execute() }.getOrNull() ?: continue
-                    response.use { resp ->
-                        if (!resp.isSuccessful) return@use
-                        val body = resp.body?.string().orEmpty()
-                        if (body.isBlank()) return@use
-                        val resolvedUrl = pickBestM3uUrl(base, body, stream.fileIdx) ?: return@use
-                        return stream.copy(url = resolvedUrl)
-                    }
-                } else {
-                    // Direct stream endpoint: don't read the body (it can be the entire video).
-                    val request = Request.Builder()
-                        .url(url)
-                        .header("Range", "bytes=0-1")
-                        .get()
-                        .build()
-                    val response = runCatching { client.newCall(request).execute() }.getOrNull() ?: continue
-                    response.use { resp ->
-                        if (resp.isSuccessful) {
-                            return stream.copy(url = url)
-                        }
-                    }
-                }
+        val combinations = candidates.flatMap { base ->
+            endpointPaths.map { path ->
+                Triple(base, base + path, path.contains("m3u", ignoreCase = true))
             }
         }
 
-        return null
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        return withContext(Dispatchers.IO.limitedParallelism(4)) {
+            coroutineScope {
+                val deferreds = combinations.map { (base, url, isM3uEndpoint) ->
+                    async {
+                        if (isM3uEndpoint) {
+                            val request = Request.Builder().url(url).get().build()
+                            val response = runCatching { client.newCall(request).execute() }.getOrNull() ?: return@async null
+                            response.use { resp ->
+                                if (!resp.isSuccessful) return@async null
+                                val body = resp.body?.string().orEmpty()
+                                if (body.isBlank()) return@async null
+                                val resolvedUrl = pickBestM3uUrl(base, body, stream.fileIdx) ?: return@async null
+                                return@async stream.copy(url = resolvedUrl)
+                            }
+                        } else {
+                            val request = Request.Builder()
+                                .url(url)
+                                .header("Range", "bytes=0-1")
+                                .get()
+                                .build()
+                            val response = runCatching { client.newCall(request).execute() }.getOrNull() ?: return@async null
+                            response.use { resp ->
+                                if (resp.isSuccessful) {
+                                    return@async stream.copy(url = url)
+                                }
+                                return@async null
+                            }
+                        }
+                    }
+                }
+
+                var successfulResult: StreamSource? = null
+                val activeJobs = deferreds.toMutableList()
+
+                while (activeJobs.isNotEmpty() && successfulResult == null) {
+                    val (job, result) = kotlinx.coroutines.selects.select<Pair<kotlinx.coroutines.Deferred<StreamSource?>, StreamSource?>> {
+                        activeJobs.forEach { d ->
+                            d.onAwait { r -> Pair(d, r) }
+                        }
+                    }
+                    activeJobs.remove(job)
+                    if (result != null) {
+                        successfulResult = result
+                        break
+                    }
+                }
+
+                deferreds.forEach { it.cancel() }
+                successfulResult
+            }
+        }
     }
 
     private fun pickBestM3uUrl(base: String, m3u: String, fileIdx: Int?): String? {
