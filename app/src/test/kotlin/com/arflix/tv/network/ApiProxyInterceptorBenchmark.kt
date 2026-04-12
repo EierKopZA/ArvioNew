@@ -2,10 +2,12 @@ package com.arflix.tv.network
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Test
+import org.junit.Ignore
 import kotlin.system.measureNanoTime
 import java.util.concurrent.TimeUnit
 
 class ApiProxyInterceptorBenchmark {
+    @Ignore("Manual benchmark test, ignores CI")
     @Test
     fun benchmarkQueryParameterIteration() {
         val urlString = "https://api.themoviedb.org/3/discover/movie?api_key=test_key&language=en-US&sort_by=popularity.desc&include_adult=false&include_video=false&page=1&with_watch_monetization_types=flatrate"
@@ -30,6 +32,7 @@ class ApiProxyInterceptorBenchmark {
                     }
                 }
             }
+            proxyUrlBuilder.build()
         }
 
         val optimizedTime = measureNanoTime {
