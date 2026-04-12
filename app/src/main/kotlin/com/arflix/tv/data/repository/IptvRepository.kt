@@ -4126,8 +4126,7 @@ class IptvRepository @Inject constructor(
     private fun cleanupStaleEpgTempFiles(maxAgeMs: Long = 3 * 60_000L) {
         runCatching {
             val now = System.currentTimeMillis()
-            context.cacheDir.listFiles()?.forEach { file ->
-                if (!file.name.startsWith("epg_") || !file.name.endsWith(".xml")) return@forEach
+            context.cacheDir.listFiles { _, name -> name.startsWith("epg_") && name.endsWith(".xml") }?.forEach { file ->
                 val age = now - file.lastModified()
                 if (age > maxAgeMs) {
                     runCatching { file.delete() }
@@ -4140,8 +4139,7 @@ class IptvRepository @Inject constructor(
         runCatching {
             val dir = File(context.filesDir, "iptv_cache")
             if (!dir.exists()) return
-            dir.listFiles()?.forEach { file ->
-                if (!file.name.endsWith("_iptv_cache.json")) return@forEach
+            dir.listFiles { _, name -> name.endsWith("_iptv_cache.json") }?.forEach { file ->
                 if (file.length() > MAX_IPTV_CACHE_BYTES * 2) {
                     runCatching { file.delete() }
                 }
