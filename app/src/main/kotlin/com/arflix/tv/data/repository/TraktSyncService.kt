@@ -1431,20 +1431,16 @@ class TraktSyncService @Inject constructor(
         if (stale.isEmpty()) return
 
         val semaphore = Semaphore(5)
+        val staleIds = stale.mapNotNull { it.id }
         coroutineScope {
-            stale.map { record ->
+            staleIds.chunked(50).map { chunk ->
                 async {
                     semaphore.withPermit {
                         try {
-                            executeSupabaseCall("delete stale playback") { auth ->
-                                supabaseApi.deleteWatchHistory(
+                            executeSupabaseCall("delete stale playback batch") { auth ->
+                                supabaseApi.deleteWatchHistoryByIds(
                                     auth = auth,
-                                    userId = "eq.$userId",
-                                    showTmdbId = record.showTmdbId?.let { "eq.$it" },
-                                    mediaType = "eq.${record.mediaType}",
-                                    season = record.season?.let { "eq.$it" },
-                                    episode = record.episode?.let { "eq.$it" },
-                                    source = "eq.${profileHistorySource("trakt")}"
+                                    idIn = "in.(${chunk.joinToString(",")})"
                                 )
                             }
                         } catch (e: Exception) {
