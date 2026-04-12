@@ -71,6 +71,13 @@ interface SupabaseApi {
         @Query("source") source: String? = null
     )
     
+    @retrofit2.http.HTTP(method = "DELETE", path = "rest/v1/watch_history", hasBody = false)
+    suspend fun deleteWatchHistoryByIds(
+        @Header("Authorization") auth: String,
+        @Header("apikey") apiKey: String = Constants.SUPABASE_ANON_KEY,
+        @Query("id") idIn: String
+    )
+
     // ========== User Profiles ==========
     
     @GET("rest/v1/profiles")
