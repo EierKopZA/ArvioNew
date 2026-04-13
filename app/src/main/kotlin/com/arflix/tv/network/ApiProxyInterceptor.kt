@@ -51,9 +51,11 @@ class ApiProxyInterceptor : Interceptor {
             .addQueryParameter("path", path)
 
         // Forward all original query parameters except api_key
-        originalUrl.queryParameterNames.forEach { name ->
+        for (i in 0 until originalUrl.querySize) {
+            val name = originalUrl.queryParameterName(i)
             if (name != "api_key") {
-                originalUrl.queryParameter(name)?.let { value ->
+                val value = originalUrl.queryParameterValue(i)
+                if (value != null) {
                     proxyUrlBuilder.addQueryParameter(name, value)
                 }
             }
@@ -78,8 +80,10 @@ class ApiProxyInterceptor : Interceptor {
             .addQueryParameter("method", originalRequest.method)
 
         // Forward all original query parameters
-        originalUrl.queryParameterNames.forEach { name ->
-            originalUrl.queryParameter(name)?.let { value ->
+        for (i in 0 until originalUrl.querySize) {
+            val name = originalUrl.queryParameterName(i)
+            val value = originalUrl.queryParameterValue(i)
+            if (value != null) {
                 proxyUrlBuilder.addQueryParameter(name, value)
             }
         }
