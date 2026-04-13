@@ -1813,22 +1813,7 @@ fun PlayerScreen(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Text(
-                        text = when {
-                            uiState.isLoadingSubtitles -> "Fetching subtitles..."
-                            uiState.isLoadingStreams -> "Loading streams..."
-                            uiState.selectedStreamUrl != null && !hasPlaybackStarted -> "Starting playback..."
-                            else -> "Loading..."
-                        },
-                        style = ArflixTypography.body,
-                        color = TextSecondary
-                    )
-                }
+                PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
             }
         }
 
@@ -1863,7 +1848,7 @@ fun PlayerScreen(
 
         // Netflix-style Controls Overlay
         AnimatedVisibility(
-            visible = showControls && !showSubtitleMenu && !showSourceMenu,
+            visible = hasPlaybackStarted && showControls && !showSubtitleMenu && !showSourceMenu,
             enter = fadeIn(androidx.compose.animation.core.tween(150)),
             exit = fadeOut(androidx.compose.animation.core.tween(200))
         ) {
