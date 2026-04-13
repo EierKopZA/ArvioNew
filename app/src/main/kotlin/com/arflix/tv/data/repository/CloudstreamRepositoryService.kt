@@ -53,11 +53,13 @@ class CloudstreamRepositoryService @Inject constructor(
     suspend fun normalizeRepositoryUrl(rawUrl: String): String = withContext(Dispatchers.Default) {
         val trimmed = rawUrl.trim()
         require(trimmed.isNotBlank()) { "Repository URL is empty" }
+        val cloudstreamRepoPrefix = "cloudstreamrepo://"
+        val csRepoPrefix = "https://cs.repo/"
         val expanded = when {
-            trimmed.startsWith("cloudstreamrepo://", ignoreCase = true) ->
-                trimmed.removePrefix("cloudstreamrepo://").let { "https://$it" }
-            trimmed.startsWith("https://cs.repo/", ignoreCase = true) ->
-                trimmed.removePrefix("https://cs.repo/").let { decoded ->
+            trimmed.startsWith(cloudstreamRepoPrefix, ignoreCase = true) ->
+                trimmed.substring(cloudstreamRepoPrefix.length).let { "https://$it" }
+            trimmed.startsWith(csRepoPrefix, ignoreCase = true) ->
+                trimmed.substring(csRepoPrefix.length).let { decoded ->
                     if (decoded.startsWith("http://", ignoreCase = true) || decoded.startsWith("https://", ignoreCase = true)) {
                         decoded
                     } else {

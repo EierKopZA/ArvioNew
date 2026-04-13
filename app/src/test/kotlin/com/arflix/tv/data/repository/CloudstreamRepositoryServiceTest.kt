@@ -18,6 +18,31 @@ class CloudstreamRepositoryServiceTest {
     }
 
     @Test
+    fun `normalizeRepositoryUrl expands uppercase cloudstream repo scheme`() = runBlocking {
+        val normalized = service.normalizeRepositoryUrl("CLOUDSTREAMREPO://example.com/repo.json")
+        assertEquals("https://example.com/repo.json", normalized)
+    }
+
+    @Test
+    fun `normalizeRepositoryUrl decodes uppercase cs repo prefix`() = runBlocking {
+        val normalized = service.normalizeRepositoryUrl("HTTPS://CS.REPO/https://example.com/repo.json")
+        assertEquals("https://example.com/repo.json", normalized)
+    }
+
+    @Test
+    fun `normalizeRepositoryUrl decodes mixed case cs repo prefix with implicit https`() = runBlocking {
+        val normalized = service.normalizeRepositoryUrl("hTTps://cS.RePo/example.com/repo.json")
+        assertEquals("https://example.com/repo.json", normalized)
+    }
+
+    @Test
+    fun `normalizeRepositoryUrl keeps already normalized lowercase https url unchanged`() = runBlocking {
+        val input = "https://example.com/repo.json"
+        val normalized = service.normalizeRepositoryUrl(input)
+        assertEquals(input, normalized)
+    }
+
+    @Test
     fun `normalizeRepositoryUrl rejects non https urls`() = runBlocking {
         try {
             service.normalizeRepositoryUrl("http://example.com/repo.json")
