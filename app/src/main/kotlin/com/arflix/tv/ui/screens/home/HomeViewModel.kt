@@ -146,7 +146,10 @@ class HomeViewModel @Inject constructor(
     fun isCollectionItem(item: MediaItem): Boolean = item.status?.startsWith("collection:") == true
 
     private fun isActionableMediaItem(item: MediaItem): Boolean {
-        return item.id > 0 && !item.isPlaceholder
+        // Synthetic collection tiles (Netflix/Disney/HBO service cards) carry
+        // a hash-based id in MediaItem.id that is not a real TMDB id — treating
+        // them as actionable triggers TMDB /images 404s in the logo preloader.
+        return item.id > 0 && !item.isPlaceholder && !isCollectionItem(item)
     }
 
     private fun continueWatchingKey(mediaType: MediaType, id: Int): String {
@@ -347,6 +350,17 @@ class HomeViewModel @Inject constructor(
 
     private fun hasRealItems(category: Category?): Boolean {
         return category?.items?.any { !it.isPlaceholder } == true
+    }
+
+    private fun chooseInitialHero(categories: List<Category>): MediaItem? {
+        val preferredRow = categories.firstOrNull { category ->
+            !category.id.startsWith("collection_row_") && category.items.any { !it.isPlaceholder }
+        }
+        return preferredRow?.items?.firstOrNull { !it.isPlaceholder }
+            ?: categories.asSequence()
+                .flatMap { it.items.asSequence() }
+                .firstOrNull { !it.isPlaceholder }
+            ?: categories.firstOrNull()?.items?.firstOrNull()
     }
 
     /**
@@ -774,7 +788,7 @@ class HomeViewModel @Inject constructor(
             try {
                 val cachedCategories = loadCategoriesCache()
                 if (cachedCategories.isNotEmpty() && _uiState.value.categories.isEmpty()) {
-                    val heroItem = cachedCategories.firstOrNull()?.items?.firstOrNull()
+                    val heroItem = chooseInitialHero(cachedCategories)
                     val heroKey = heroItem?.let { "${it.mediaType}_${it.id}" }
                     val heroLogo = heroKey?.let { getCachedLogo(it) }
                     _uiState.value = _uiState.value.copy(
@@ -993,8 +1007,10 @@ class HomeViewModel @Inject constructor(
             categories.firstOrNull()?.items?.any { it.id == heroItem.id } == true) {
             // Hero was from continue watching, use first item from filtered categories
             filteredCategories.getOrNull(1)?.items?.firstOrNull() ?: heroItem
-        } else {
+        } else if (heroItem != null && !isCollectionItem(heroItem)) {
             heroItem
+        } else {
+            chooseInitialHero(filteredCategories)
         }
 
         // If CW preload already set a hero with a logo, preserve it — the preloaded
@@ -1035,21 +1051,32 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun toCollectionCategory(row: HomeCollectionRow): Category {
+        var logoChanged = false
         val items = row.items.mapIndexed { index, config ->
             val fakeId = (config.id.hashCode() and Int.MAX_VALUE).let { if (it == 0) index + 1 else it }
             collectionCatalogByMediaId[fakeId] = config
+            // Seed the logo cache so the focused tile / hero can render the
+            // real clearlogo PNG instead of falling back to title text.
+            config.collectionClearLogoUrl?.takeIf { it.isNotBlank() }?.let { logo ->
+                if (putCachedLogo("MOVIE_$fakeId", logo)) logoChanged = true
+            }
+            // Collection tiles: `image` is the static cover shown when idle,
+            // `backdrop` is the focus GIF that MediaCard swaps in while the
+            // tile is focused (collection tiles are detected by the
+            // `collection:` status prefix).
             MediaItem(
                 id = fakeId,
                 title = config.title,
                 overview = config.collectionDescription.orEmpty(),
                 mediaType = MediaType.MOVIE,
                 image = config.collectionCoverImageUrl.orEmpty(),
-                backdrop = config.collectionHeroGifUrl
-                    ?: config.collectionHeroImageUrl
-                    ?: config.collectionFocusGifUrl
+                backdrop = config.collectionFocusGifUrl
                     ?: config.collectionCoverImageUrl,
                 status = "collection:${config.id}"
             )
+        }
+        if (logoChanged) {
+            scheduleLogoCachePublish(highPriority = true)
         }
         return Category(
             id = row.id,
@@ -1150,9 +1177,18 @@ class HomeViewModel @Inject constructor(
                         )
                         val addons = streamRepository.installedAddons.first()
                         catalogRepository.syncAddonCatalogs(addons)
+                        // Ensure built-in preinstalled catalogs exist, then re-read
+                        // the persisted catalog list so the returned value includes
+                        // BOTH built-ins AND the addon catalogs just synced above.
+                        // Previously `ensurePreinstalledDefaults()` was returned
+                        // directly, and its output didn't include newly-synced
+                        // addon catalogs — that's why user-added Stremio addons
+                        // (Bharat Binge, AIO Metadata, etc.) appeared in the
+                        // Catalogs tab but were dropped from the Home screen.
                         catalogRepository.ensurePreinstalledDefaults(
                             mediaRepository.getDefaultCatalogConfigs()
                         )
+                        catalogRepository.getCatalogs()
                     }.getOrElse {
                         // If sync/defaults fail, fall back to whatever is already saved
                         // (includes user's custom Trakt catalogs) instead of only preinstalled defaults.
@@ -1173,10 +1209,7 @@ class HomeViewModel @Inject constructor(
                     )
                     if (requestId != loadHomeRequestId) return@loadHome
                     if (skeletonCategories.isNotEmpty()) {
-                        val skeletonHero = skeletonCategories
-                            .asSequence()
-                            .flatMap { it.items.asSequence() }
-                            .firstOrNull { !it.isPlaceholder }
+                        val skeletonHero = chooseInitialHero(skeletonCategories)
                         _uiState.value = _uiState.value.copy(
                             isLoading = true,
                             isInitialLoad = false,
@@ -1331,9 +1364,26 @@ class HomeViewModel @Inject constructor(
 
                     // Resolve in savedCatalogs order — this is the user's configured
                     // catalog ordering from Settings > Catalogs.
+                    // Addon-provided service-branded catalogs (Netflix, Disney+,
+                    // Hulu etc. rows contributed by aio-metadata / org.kris /
+                    // nuvio addons) are suppressed here — we already surface
+                    // those services via the collection-tile Services row, so
+                    // having a second identically-named catalog row below it
+                    // was duplicative per user feedback. Preinstalled catalogs
+                    // (Trending, Just Added, Top 10, etc.) are never skipped.
+                    val serviceTitleBlocklist = setOf(
+                        "netflix", "prime video", "prime", "apple tv+", "apple tv plus",
+                        "apple tv", "disney+", "disney plus", "paramount+", "paramount plus",
+                        "hbo max", "max", "hulu", "shudder", "jiohotstar", "sonyliv",
+                        "sky", "crunchyroll", "peacock"
+                    )
                     val resolved = savedCatalogs.mapNotNull { cfg ->
                         val cat = allById[cfg.id]
-                        if (cat != null && cat.items.isNotEmpty()) cat else null
+                        if (cat == null || cat.items.isEmpty()) return@mapNotNull null
+                        if (!cfg.isPreinstalled &&
+                            cat.title.trim().lowercase(Locale.US) in serviceTitleBlocklist
+                        ) return@mapNotNull null
+                        cat
                     }.toMutableList()
                     resolved
                 }
@@ -1348,24 +1398,44 @@ class HomeViewModel @Inject constructor(
                         }
                     }.awaitAll().filterNotNull()
 
+                    // Group by collection kind (Service, Franchise, Genre).
+                    // Use pluralized, user-facing titles and enforce a stable
+                    // Services → Franchises → Genres order regardless of
+                    // per-item catalog ordering.
                     val grouped = LinkedHashMap<String, MutableList<CatalogConfig>>()
                     loadedCollections.forEach { cfg ->
-                        val groupTitle = cfg.collectionGroup?.name
-                            ?.lowercase(Locale.US)
-                            ?.replaceFirstChar { it.uppercase() }
-                            ?: "Collections"
+                        val groupTitle = when (cfg.collectionGroup) {
+                            com.arflix.tv.data.model.CollectionGroupKind.SERVICE -> "Services"
+                            com.arflix.tv.data.model.CollectionGroupKind.FRANCHISE -> "Franchises"
+                            com.arflix.tv.data.model.CollectionGroupKind.GENRE -> "Genres"
+                            com.arflix.tv.data.model.CollectionGroupKind.DIRECTOR -> "Directors"
+                            null -> "Collections"
+                        }
                         grouped.getOrPut(groupTitle) { mutableListOf() }.add(cfg)
                     }
-                    grouped.map { (title, items) ->
-                        HomeCollectionRow(
-                            id = "collection_row_${title.lowercase(Locale.US).replace(' ', '_')}",
-                            title = title,
-                            items = items
-                        )
+                    val groupOrder = listOf("Services", "Franchises", "Genres", "Directors", "Collections")
+                    groupOrder.mapNotNull { title ->
+                        grouped[title]?.let { items ->
+                            HomeCollectionRow(
+                                id = "collection_row_${title.lowercase(Locale.US)}",
+                                title = title,
+                                items = items
+                            )
+                        }
                     }
                 }
                 val collectionCategories = collectionRows.map { toCollectionCategory(it) }
-                categories.addAll(0, collectionCategories.asReversed())
+                // Insert Services/Franchises/Genres right after the trending
+                // anime row. If anime hasn't loaded, fall back to "after the
+                // last trending_* row", otherwise append.
+                val animeIdx = categories.indexOfFirst { it.id == "trending_anime" }
+                val lastTrendingIdx = categories.indexOfLast { it.id.startsWith("trending_") }
+                val insertAt = when {
+                    animeIdx >= 0 -> animeIdx + 1
+                    lastTrendingIdx >= 0 -> lastTrendingIdx + 1
+                    else -> categories.size
+                }
+                categories.addAll(insertAt, collectionCategories)
                 if (categories.any { it.id != "continue_watching" && !it.id.startsWith("collection_row_") }) {
                     lastResolvedBaseCategories = categories.filter {
                         it.id != "continue_watching" && !it.id.startsWith("collection_row_")
@@ -1410,7 +1480,7 @@ class HomeViewModel @Inject constructor(
                 // Launch the independent CW fetch
                 launchContinueWatchingFetch()
 
-                val heroItem = categories.firstOrNull()?.items?.firstOrNull()
+                val heroItem = chooseInitialHero(categories)
 
                 // Preload logos for the first visible rows so card overlays appear immediately.
                 // Skip IPTV items — their channel logo is already in item.image.
@@ -2310,21 +2380,31 @@ class HomeViewModel @Inject constructor(
      * Uses fast-scroll detection for smoother experience during rapid navigation
      */
     fun updateHeroItem(item: MediaItem) {
-        if (!isActionableMediaItem(item)) {
-            return
-        }
         if (isCollectionItem(item)) {
+            if (item.isPlaceholder) return
             heroUpdateJob?.cancel()
             heroDetailsJob?.cancel()
+            val catalog = collectionCatalogByMediaId[item.id]
+            val collectionLogo = catalog?.collectionClearLogoUrl?.takeIf { it.isNotBlank() }
+            // Prefer the high-res static hero art for the backdrop so the
+            // hero area reads as a cinematic still rather than a looping GIF.
+            val heroBackdrop = catalog?.collectionHeroImageUrl?.takeIf { it.isNotBlank() }
+                ?: item.backdrop
+            val heroItem = if (heroBackdrop != null && heroBackdrop != item.backdrop) {
+                item.copy(backdrop = heroBackdrop)
+            } else item
             _uiState.value = _uiState.value.copy(
                 previousHeroItem = _uiState.value.heroItem,
                 previousHeroLogoUrl = _uiState.value.heroLogoUrl,
-                heroItem = item,
-                heroLogoUrl = null,
+                heroItem = heroItem,
+                heroLogoUrl = collectionLogo,
                 heroOverviewOverride = item.overview,
                 heroTrailerKey = null,
                 isHeroTransitioning = false
             )
+            return
+        }
+        if (!isActionableMediaItem(item)) {
             return
         }
 
@@ -2420,6 +2500,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun hydrateHeroDetailsIfNeeded(item: MediaItem) {
+        if (!isActionableMediaItem(item) || isIptvItem(item) || isCollectionItem(item)) {
+            return
+        }
+
         // Always fetch trailer for new hero item
         if (_uiState.value.trailerAutoPlay) {
             // Clear previous trailer immediately
