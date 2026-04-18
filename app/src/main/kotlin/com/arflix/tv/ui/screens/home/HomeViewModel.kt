@@ -1465,17 +1465,22 @@ class HomeViewModel @Inject constructor(
                 if (existingCW != null) {
                     categories.add(0, existingCW)
                 } else if (cachedContinueWatching.isNotEmpty()) {
-                    // Non-Trakt fallback: use cached CW for immediate display
-                    val isTraktAuth = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
-                    if (!isTraktAuth) {
-                        val merged = mergeContinueWatchingResumeData(cachedContinueWatching)
-                        val cwCat = Category(
-                            id = "continue_watching",
-                            title = "Continue Watching",
-                            items = merged.map { it.toMediaItem() }
-                        )
-                        categories.add(0, cwCat)
-                    }
+                    // Show the persisted CW cache instantly regardless of
+                    // whether Trakt is connected. For Trakt users, the cache
+                    // holds the last-successful Trakt resolution, so there's
+                    // no reason to gate it behind auth — the slow fresh
+                    // Trakt fetch (launchContinueWatchingFetch below) will
+                    // still overwrite the row when it finishes. Previously
+                    // Trakt users saw the row disappear during loadHomeData
+                    // and only reappear 30-60s later when the fresh fetch
+                    // completed.
+                    val merged = mergeContinueWatchingResumeData(cachedContinueWatching)
+                    val cwCat = Category(
+                        id = "continue_watching",
+                        title = "Continue Watching",
+                        items = merged.map { it.toMediaItem() }
+                    )
+                    categories.add(0, cwCat)
                 }
                 // Launch the independent CW fetch
                 launchContinueWatchingFetch()
