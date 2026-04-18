@@ -65,11 +65,12 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // Initialize OkHttp disk cache before any network calls
         OkHttpProvider.init(this)
 
-        // Bridge arvio's shared OkHttpClient into the CloudStream plugin
-        // runtime's global `app` accessor so any `.cs3` plugin loaded later
-        // performs HTTP through the same DNS-over-HTTPS, connection pool,
-        // and interceptors as the rest of the app.
-        com.lagradost.cloudstream3.setCloudstreamHttpClient(OkHttpProvider.client)
+        // Flavor-neutral CloudStream init. The sideload flavor wires arvio's
+        // OkHttpClient into the plugin runtime's global HTTP accessor; the
+        // play flavor's counterpart is a no-op, keeping the play APK clean
+        // of any dynamic-code-loading surface required by the CS plugin
+        // protocol.
+        com.arflix.tv.cloudstream.initCloudstream(OkHttpProvider.client)
 
         // Warm DNS for TMDB image CDN so the very first image request on the home
         // screen doesn't block on DNS-over-HTTPS bootstrap + resolution. Without
