@@ -413,10 +413,22 @@ private fun CollectionHero(
     catalog: CatalogConfig?,
     heroHeight: androidx.compose.ui.unit.Dp
 ) {
-    // Prefer high-res static hero art over GIF loops so the backdrop looks
-    // crisp on large screens. Fall through to the next URL when one fails
-    // to load (handles upstream URL rot).
-    val candidates = remember(catalog) {
+    val videoUrl = remember(catalog?.id) {
+        catalog?.collectionHeroVideoUrl?.takeIf { it.isNotBlank() }
+    }
+
+    // `videoPlayed` resets when `catalog?.id` changes (new detail screen entry),
+    // so re-entering a services collection replays the video. Within one entry,
+    // once the video ends (or errors, or the app backgrounds) we flip to STATIC
+    // and never re-spawn the player.
+    var videoPlayed by remember(catalog?.id) { mutableStateOf(false) }
+
+    // Static fallback candidates — used when there's no video, when the video
+    // finishes, and when the video errors. Prefer high-res static hero art
+    // over GIF loops so the backdrop looks crisp on large screens. Fall
+    // through to the next URL when one fails to load (handles upstream URL
+    // rot).
+    val staticCandidates = remember(catalog?.id) {
         listOfNotNull(
             catalog?.collectionHeroImageUrl,
             catalog?.collectionCoverImageUrl,
@@ -424,21 +436,28 @@ private fun CollectionHero(
             catalog?.collectionFocusGifUrl
         ).filter { it.isNotBlank() }.distinct()
     }
-    var heroIndex by remember(catalog?.id) { mutableIntStateOf(0) }
-    val currentHero = candidates.getOrNull(heroIndex)
+    var staticIndex by remember(catalog?.id) { mutableIntStateOf(0) }
+    val currentStatic = staticCandidates.getOrNull(staticIndex)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(heroHeight)
     ) {
-        if (currentHero != null) {
-            val painter = rememberAsyncImagePainter(model = currentHero)
+        if (videoUrl != null && !videoPlayed) {
+            VideoHero(
+                videoUrl = videoUrl,
+                modifier = Modifier.fillMaxSize(),
+                onEnded = { videoPlayed = true }
+            )
+        } else if (currentStatic != null) {
+            val painter = rememberAsyncImagePainter(model = currentStatic)
             val painterState = painter.state
-            LaunchedEffect(painterState, currentHero) {
+            LaunchedEffect(painterState, currentStatic) {
                 if (painterState is AsyncImagePainter.State.Error &&
-                    heroIndex < candidates.lastIndex
+                    staticIndex < staticCandidates.lastIndex
                 ) {
-                    heroIndex += 1
+                    staticIndex += 1
                 }
             }
             Image(
@@ -450,6 +469,8 @@ private fun CollectionHero(
         }
         // Stronger fade at the top (so the topbar stays readable) and at the
         // bottom (so grid cards aren't competing with backdrop imagery).
+        // Stays on top of both video and static branches so topbar + grid
+        // readability are preserved.
         Box(
             modifier = Modifier
                 .fillMaxSize()

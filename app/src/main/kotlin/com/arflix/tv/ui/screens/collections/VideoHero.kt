@@ -80,7 +80,7 @@ fun VideoHero(
         }
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
                 player.pause()
