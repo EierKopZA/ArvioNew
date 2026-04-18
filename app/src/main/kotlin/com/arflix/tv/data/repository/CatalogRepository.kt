@@ -743,6 +743,7 @@ class CatalogRepository @Inject constructor(
                 val collectionFocusGifUrl = asTrimmedString(row["collectionFocusGifUrl"])
                 val collectionHeroImageUrl = asTrimmedString(row["collectionHeroImageUrl"])
                 val collectionHeroGifUrl = asTrimmedString(row["collectionHeroGifUrl"])
+                val collectionHeroVideoUrl = asTrimmedString(row["collectionHeroVideoUrl"])
                 val collectionSources = runCatching {
                     val jsonValue = gson.toJson(row["collectionSources"])
                     gson.fromJson<List<CollectionSourceConfig>>(
@@ -785,6 +786,7 @@ class CatalogRepository @Inject constructor(
                         collectionFocusGifUrl = collectionFocusGifUrl,
                         collectionHeroImageUrl = collectionHeroImageUrl,
                         collectionHeroGifUrl = collectionHeroGifUrl,
+                        collectionHeroVideoUrl = collectionHeroVideoUrl,
                         collectionSources = collectionSources,
                         requiredAddonUrls = requiredAddonUrls
                     )
@@ -832,6 +834,7 @@ class CatalogRepository @Inject constructor(
             collectionFocusGifUrl = config.collectionFocusGifUrl?.trim().takeUnless { it.isNullOrBlank() },
             collectionHeroImageUrl = config.collectionHeroImageUrl?.trim().takeUnless { it.isNullOrBlank() },
             collectionHeroGifUrl = config.collectionHeroGifUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionHeroVideoUrl = config.collectionHeroVideoUrl?.trim().takeUnless { it.isNullOrBlank() },
             collectionSources = config.collectionSources,
             requiredAddonUrls = config.requiredAddonUrls.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         )
