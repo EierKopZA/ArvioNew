@@ -14,9 +14,12 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.arflix.tv.R
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.drawBehind
@@ -72,10 +75,13 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -107,6 +113,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.arflix.tv.data.model.Category
+import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.network.OkHttpProvider
@@ -195,10 +202,26 @@ private class HomeFocusState(
     val rowItemIndices = mutableMapOf<Int, Int>()
 
     companion object {
+        // `userHasNavigated` is saved as the 4th element (0/1). Without it,
+        // returning from a Collection/Details screen caused the "preferred
+        // start row" reset to fire (since the field defaulted back to false),
+        // which snapped the scroll position to Trending Movies — losing the
+        // user's place in Franchises or wherever they were.
         val Saver: androidx.compose.runtime.saveable.Saver<HomeFocusState, List<Int>> =
             androidx.compose.runtime.saveable.Saver(
-                save = { listOf(it.currentRowIndex, it.currentItemIndex, it.sidebarFocusIndex) },
-                restore = { HomeFocusState(it[0], it[1], it[2]) }
+                save = {
+                    listOf(
+                        it.currentRowIndex,
+                        it.currentItemIndex,
+                        it.sidebarFocusIndex,
+                        if (it.userHasNavigated) 1 else 0
+                    )
+                },
+                restore = {
+                    HomeFocusState(it[0], it[1], it[2]).apply {
+                        userHasNavigated = (it.getOrNull(3) ?: 0) == 1
+                    }
+                }
             )
     }
 }
@@ -208,6 +231,18 @@ private fun getFocusedItem(categories: List<Category>, rowIndex: Int, itemIndex:
     return row?.items?.getOrNull(itemIndex)
         ?: row?.items?.firstOrNull()
         ?: categories.firstOrNull()?.items?.firstOrNull()
+}
+
+private fun preferredHomeStartRowIndex(categories: List<Category>): Int {
+    val realContentIndex = categories.indexOfFirst { category ->
+        !category.id.startsWith("collection_row_") && category.items.any { !it.isPlaceholder }
+    }
+    if (realContentIndex >= 0) return realContentIndex
+
+    val nonCollectionIndex = categories.indexOfFirst { !it.id.startsWith("collection_row_") }
+    if (nonCollectionIndex >= 0) return nonCollectionIndex
+
+    return 0
 }
 
 private fun isActionableHomeItem(item: MediaItem?): Boolean {
@@ -230,6 +265,7 @@ fun HomeScreen(
     preloadedLogoCache: Map<String, String> = emptyMap(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onNavigateToCollection: (String) -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
@@ -440,12 +476,13 @@ fun HomeScreen(
 
     // ── IPTV hero live-player state ──
     val isHeroIptv = displayHeroItem != null && viewModel.isIptvItem(displayHeroItem)
+    val isHeroCollection = displayHeroItem != null && viewModel.isCollectionItem(displayHeroItem)
     val heroVideoUrl = displayHeroItem?.let { if (isHeroIptv) viewModel.getIptvStreamUrl(it.id) else null }
 
     // Warm details assets for the currently displayed hero item so selecting
     // Details doesn't pause on the first clearlogo/episodes fetch.
     LaunchedEffect(displayHeroItem?.id, displayHeroItem?.mediaType, displayHeroItem?.nextEpisode?.seasonNumber) {
-        displayHeroItem?.let { viewModel.prefetchDetailsAssets(it) }
+        displayHeroItem?.takeUnless { viewModel.isCollectionItem(it) }?.let { viewModel.prefetchDetailsAssets(it) }
     }
 
     val heroOkHttp = remember {
@@ -607,6 +644,8 @@ fun HomeScreen(
                 displayHeroItem?.let { item ->
                     if (viewModel.isIptvItem(item)) {
                         onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else if (viewModel.isCollectionItem(item)) {
+                        onNavigateToCollection(item.status?.removePrefix("collection:").orEmpty())
                     } else {
                         onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                     }
@@ -616,6 +655,8 @@ fun HomeScreen(
                 displayHeroItem?.let { item ->
                     if (viewModel.isIptvItem(item)) {
                         onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else if (viewModel.isCollectionItem(item)) {
+                        onNavigateToCollection(item.status?.removePrefix("collection:").orEmpty())
                     } else {
                         onNavigateToDetails(item.mediaType, item.id, null, null)
                     }
@@ -625,8 +666,9 @@ fun HomeScreen(
             profileCount = profileCount,
             clockFormat = uiState.clockFormat,
             syncStatus = uiState.syncStatus,
-            onItemFocusedPrefetch = { item -> viewModel.prefetchDetailsAssets(item) },
+            onItemFocusedPrefetch = { item -> if (!viewModel.isCollectionItem(item)) viewModel.prefetchDetailsAssets(item) },
             onNavigateToDetails = onNavigateToDetails,
+            onNavigateToCollection = onNavigateToCollection,
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
             onNavigateToTv = onNavigateToTv,
@@ -1092,6 +1134,41 @@ private fun formatBudgetCompact(budget: Long): String {
         budget >= 1_000 -> "$${budget / 1_000}K"
         else -> "$$budget"
     }
+}
+
+@Composable
+private fun TopRankRibbon(
+    rank: Int,
+    isFocused: Boolean,
+    compact: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val clamped = rank.coerceIn(1, 10)
+    val resId = when (clamped) {
+        1 -> R.drawable.rank_banner_01
+        2 -> R.drawable.rank_banner_02
+        3 -> R.drawable.rank_banner_03
+        4 -> R.drawable.rank_banner_04
+        5 -> R.drawable.rank_banner_05
+        6 -> R.drawable.rank_banner_06
+        7 -> R.drawable.rank_banner_07
+        8 -> R.drawable.rank_banner_08
+        9 -> R.drawable.rank_banner_09
+        else -> R.drawable.rank_banner_10
+    }
+    val width = if (compact) 30.dp else 38.dp
+
+    Image(
+        painter = painterResource(id = resId),
+        contentDescription = "Rank #$clamped",
+        contentScale = ContentScale.Fit,
+        modifier = modifier
+            .width(width)
+            .graphicsLayer {
+                shadowElevation = if (isFocused) 18f else 10f
+                alpha = if (isFocused) 1f else 0.97f
+            }
+    )
 }
 
 @Composable
@@ -1643,6 +1720,7 @@ private fun HomeInputLayer(
     syncStatus: com.arflix.tv.data.repository.CloudSyncStatus = com.arflix.tv.data.repository.CloudSyncStatus.NOT_SIGNED_IN,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
+    onNavigateToCollection: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit,
@@ -1692,6 +1770,15 @@ private fun HomeInputLayer(
     }
     LaunchedEffect(categoryIds) {
         if (categories.isEmpty()) return@LaunchedEffect
+
+        if (!focusState.userHasNavigated && !focusState.isSidebarFocused) {
+            val preferredStartRow = preferredHomeStartRowIndex(categories)
+            if (focusState.currentRowIndex != preferredStartRow) {
+                focusState.currentRowIndex = preferredStartRow
+                focusState.currentItemIndex = 0
+                preferredCategoryId = categories.getOrNull(preferredStartRow)?.id
+            }
+        }
 
         // If the preferred category still exists, restore the row index to it.
         // Otherwise keep the current index but clamp to valid range.
@@ -1857,11 +1944,19 @@ private fun HomeInputLayer(
                                         val isContinue = currentCategory?.id == "continue_watching"
                                         onOpenContextMenu(item, isContinue)
                                     } else {
-                                        // Short press: navigate
+                                        // Short press: navigate. Must check collection:
+                                        // BEFORE falling through to Details — D-pad SELECT
+                                        // on a service tile (Netflix, HBO, ...) was hitting
+                                        // DetailsScreen with the synthetic hash id and
+                                        // spamming TMDB 404s instead of opening the catalog.
                                         val iptvId = item.status?.removePrefix("iptv:")
                                             ?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                                        val collectionId = item.status?.removePrefix("collection:")
+                                            ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                                         if (iptvId != null) {
                                             onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                                        } else if (collectionId != null) {
+                                            onNavigateToCollection(collectionId)
                                         } else {
                                             onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                                         }
@@ -1917,8 +2012,11 @@ private fun HomeInputLayer(
                     return@HomeRowsLayer
                 }
                 val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                val collectionId = item.status?.removePrefix("collection:")?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                 if (iptvId != null) {
                     onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                } else if (collectionId != null) {
+                    onNavigateToCollection(collectionId)
                 } else {
                     onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                 }
@@ -2005,6 +2103,7 @@ private fun MobileHomeRowsLayer(
         ) { _, category ->
             val isContinueWatching = category.id == "continue_watching"
             val isRanked = category.title.contains("Top 10", ignoreCase = true)
+            val isCollectionRow = category.id.startsWith("collection_row_")
 
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 // Section title
@@ -2043,11 +2142,11 @@ private fun MobileHomeRowsLayer(
                             Box(
                                 modifier = Modifier.width(mobileItemWidth)
                             ) {
-                                val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                                val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                                 ArvioMediaCard(
                                     item = item,
                                     width = mobileItemWidth,
-                                    isLandscape = !usePosterCards,
+                                    isLandscape = if (isCollectionRow) true else !usePosterCards,
                                     logoImageUrl = cardLogoUrl,
                                     showProgress = false,
                                     showTitle = true,
@@ -2057,36 +2156,22 @@ private fun MobileHomeRowsLayer(
                                     onClick = { onItemClick(item) },
                                     onLongClick = onItemLongClick?.let { callback -> { callback(item, isContinueWatching) } },
                                 )
-                                Box(
+                                TopRankRibbon(
+                                    rank = index + 1,
+                                    isFocused = false,
+                                    compact = true,
                                     modifier = Modifier
                                         .align(Alignment.TopStart)
                                         .zIndex(2f)
-                                        .padding(top = 6.dp, start = 6.dp)
-                                        .background(
-                                            Brush.verticalGradient(
-                                                listOf(Color(0xFFFFD54A), Color(0xFFFFB300))
-                                            ),
-                                            RoundedCornerShape(6.dp)
-                                        )
-                                        .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = "${index + 1}",
-                                        style = ArflixTypography.caption.copy(
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Black
-                                        ),
-                                        color = Color(0xFF17120A)
-                                    )
-                                }
+                                        .padding(start = 6.dp)
+                                )
                             }
                         } else {
-                            val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                            val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                             ArvioMediaCard(
                                 item = item,
                                 width = mobileItemWidth,
-                                isLandscape = !usePosterCards,
+                                isLandscape = if (isCollectionRow) true else !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = isContinueWatching,
                                 showTitle = true,
@@ -2390,6 +2475,7 @@ private fun ContentRow(
     onItemClick: (MediaItem) -> Unit,
     onItemFocused: (MediaItem, Int) -> Unit
 ) {
+    val isCollectionRow = category.id.startsWith("collection_row_")
     val rowState = rememberLazyListState()
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -2398,7 +2484,8 @@ private fun ContentRow(
     // row spacing (which made the section layout feel loose), slightly reduce the
     // poster card width so the 1.05x focus zoom has more breathing room inside the
     // existing row spacing. ~5% smaller than before.
-    val itemWidth = if (usePosterCards) 119.dp else 210.dp
+    val effectivePosterMode = if (isCollectionRow) false else usePosterCards
+    val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
     val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
@@ -2594,57 +2681,43 @@ private fun ContentRow(
                     // embedded card, which made the row feel cramped and inconsistent.
                     // Use a normal card and place a premium gold rank badge in the
                     // top-right corner instead.
-                    val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                    val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                     Box(
                         modifier = Modifier.width(itemWidth)
                     ) {
                         ArvioMediaCard(
                             item = item,
                             width = itemWidth,
-                            isLandscape = !usePosterCards,
+                            isLandscape = !effectivePosterMode,
                             logoImageUrl = cardLogoUrl,
                             showProgress = false,
-                            showTitle = false,
+                            showTitle = isCollectionRow,
                             isFocusedOverride = itemIsFocused,
                             enableSystemFocus = false,
                             onFocused = { onItemFocused(item, index) },
                             onClick = { onItemClick(item) },
                         )
 
-                        Box(
+                        TopRankRibbon(
+                            rank = index + 1,
+                            isFocused = itemIsFocused,
+                            compact = !effectivePosterMode,
                             modifier = Modifier
-                                .align(Alignment.TopEnd)
+                                .align(Alignment.TopStart)
                                 .zIndex(2f)
-                                .padding(top = 8.dp, end = 8.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0xFFFFD54A), Color(0xFFFFB300))
-                                    ),
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = "${index + 1}",
-                                style = ArflixTypography.caption.copy(
-                                    fontSize = if (usePosterCards) 12.sp else 13.sp,
-                                    fontWeight = FontWeight.Black
-                                ),
-                                color = Color(0xFF17120A)
-                            )
-                        }
+                                .padding(start = 8.dp)
+                        )
                     }
                 } else {
                     // Standard Card - keep width aligned with scroll math
-                    val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                    val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                     ArvioMediaCard(
                         item = item,
                         width = itemWidth,
-                        isLandscape = !usePosterCards,
-                        logoImageUrl = cardLogoUrl,
-                        showProgress = isContinueWatching,
-                        showTitle = false,
+                            isLandscape = !effectivePosterMode,
+                            logoImageUrl = cardLogoUrl,
+                            showProgress = isContinueWatching,
+                            showTitle = isCollectionRow,
                         isFocusedOverride = itemIsFocused,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },

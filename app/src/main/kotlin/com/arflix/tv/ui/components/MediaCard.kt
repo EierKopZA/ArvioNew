@@ -44,6 +44,9 @@ import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.skin.rememberArvioCardShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 
 /**
@@ -73,6 +76,10 @@ fun MediaCard(
     width: Dp = 280.dp,  // Arctic Fuse 2: larger cards by default
     isLandscape: Boolean = true,
     logoImageUrl: String? = null,
+    // Collection tiles supply a separate focus-state image (animated GIF)
+    // that swaps in when the card is focused, so the row stays static
+    // when idle and only the hovered tile animates.
+    focusImageUrl: String? = null,
     showProgress: Boolean = false,
     showTitle: Boolean = true,
     titleMaxLines: Int = 1,
@@ -104,10 +111,27 @@ fun MediaCard(
     // produce image="" in toMediaItem(). Passing "" to Coil throws
     // "Unable to create a fetcher that supports: " and the card stays dark forever.
     // With this guard, cards with no image simply show the surface background color.
-    val rawImageUrl = if (isLandscape) {
+    // Collection tiles (services/franchises/genres) encode the focus-state
+    // image as `item.backdrop` and the static cover as `item.image`. Swap
+    // between them based on focus so the row is calm while idle and only the
+    // hovered tile animates its GIF. Regular media items keep the existing
+    // behavior (landscape uses backdrop art, poster uses image).
+    val isCollectionTile = item.status?.startsWith("collection:") == true
+    val baseImageUrl = if (isCollectionTile) {
+        item.image.takeIf { it.isNotBlank() } ?: item.backdrop?.takeIf { it.isNotBlank() }
+    } else if (isLandscape) {
         (item.backdrop ?: item.image).takeIf { it.isNotBlank() }
     } else {
         item.image.takeIf { it.isNotBlank() }
+    }
+    val explicitFocusUrl = focusImageUrl?.takeIf { it.isNotBlank() }
+    val collectionFocusUrl = if (isCollectionTile) {
+        item.backdrop?.takeIf { it.isNotBlank() && it != item.image }
+    } else null
+    val rawImageUrl = if (visualFocused) {
+        explicitFocusUrl ?: collectionFocusUrl ?: baseImageUrl
+    } else {
+        baseImageUrl
     }
     val shape = rememberArvioCardShape(ArvioSkin.radius.md)
 
@@ -173,8 +197,10 @@ fun MediaCard(
         ) { _ ->
             Box(modifier = Modifier.fillMaxSize()) {
                 // Only render AsyncImage when we have a valid image URL.
-                // When imageRequest is null (no poster/backdrop from TMDB), the
-                // card's surface background color serves as the placeholder.
+                // When imageRequest is null (no poster/backdrop from TMDB),
+                // render a branded gradient fallback with the title centered
+                // so the card conveys what it's for instead of showing as a
+                // blank rectangle that used to look broken.
                 if (imageRequest != null) {
                     AsyncImage(
                         model = imageRequest,
@@ -184,6 +210,29 @@ fun MediaCard(
                             .fillMaxSize()
                             .background(ArvioSkin.colors.surface),
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        Color(0xFF1F2333),
+                                        Color(0xFF0D0D14)
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = item.title,
+                            style = ArvioSkin.typography.cardTitle,
+                            color = Color.White.copy(alpha = 0.82f),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 10.dp)
+                        )
+                    }
                 }
                 if (overlayBrush != null) {
                     Box(
@@ -193,19 +242,42 @@ fun MediaCard(
                     )
                 }
 
-                // Official logo/art overlay in bottom-left corner of landscape cards.
+                // Official logo/art overlay in bottom-left corner of landscape
+                // cards. Rendered in two layers so dark/black logos remain
+                // readable on dark card art: a white silhouette of the logo
+                // sits behind the real logo with a 1px offset and low alpha
+                // to create a subtle halo. Light logos are largely unchanged
+                // (white-behind-white adds no contrast).
                 if (isLandscape && logoRequest != null) {
-                    AsyncImage(
-                        model = logoRequest,
-                        contentDescription = "${item.title} logo",
-                        contentScale = ContentScale.Fit,
-                        alignment = Alignment.BottomStart,
+                    Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth(0.52f)
                             .height(48.dp)
                             .padding(start = 10.dp, bottom = 18.dp)
-                    )
+                    ) {
+                        AsyncImage(
+                            model = logoRequest,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.BottomStart,
+                            colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = 0.55f
+                                    translationX = 1.dp.toPx()
+                                    translationY = 1.dp.toPx()
+                                }
+                        )
+                        AsyncImage(
+                            model = logoRequest,
+                            contentDescription = "${item.title} logo",
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.BottomStart,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
 
                 // Subtle green watched badge
@@ -272,15 +344,19 @@ fun MediaCard(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            // Arctic Fuse 2 style: Show media type with genre-like format
-            val subtitle = remember(item.subtitle, item.mediaType) {
-                item.subtitle.ifBlank {
-                    when (item.mediaType) {
-                        MediaType.TV -> "Drama / TV Series"
-                        MediaType.MOVIE -> "Action / Movie"
-                        else -> "Media"
+            // Prefer release date (or year) under the title. Fall back to the
+            // explicit subtitle or media-type label only when neither is set.
+            val subtitle = remember(item.subtitle, item.releaseDate, item.year, item.mediaType) {
+                val release = item.releaseDate?.takeIf { it.isNotBlank() }
+                    ?: item.year.takeIf { it.isNotBlank() }
+                release
+                    ?: item.subtitle.ifBlank {
+                        when (item.mediaType) {
+                            MediaType.TV -> "TV Series"
+                            MediaType.MOVIE -> "Movie"
+                            else -> "Media"
+                        }
                     }
-                }
             }
             Text(
                 text = subtitle,

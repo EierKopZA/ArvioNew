@@ -1,0 +1,348 @@
+@file:Suppress("UnsafeOptInUsageError")
+
+package com.arflix.tv.ui.screens.tv.live
+
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Text
+import com.arflix.tv.data.model.IptvNowNext
+import com.arflix.tv.data.model.IptvProgram
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun MiniPlayerRow(
+    exoPlayer: ExoPlayer,
+    channel: EnrichedChannel?,
+    nowNext: IptvNowNext?,
+    favoriteSet: Set<String>,
+    onFavoriteToggle: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 24.dp, top = 14.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        VideoCard(exoPlayer = exoPlayer, channel = channel)
+        InfoColumn(
+            channel = channel,
+            nowNext = nowNext,
+            isFavorite = channel?.id?.let { it in favoriteSet } == true,
+            onFavoriteToggle = onFavoriteToggle,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun VideoCard(exoPlayer: ExoPlayer, channel: EnrichedChannel?) {
+    Box(
+        modifier = Modifier
+            .size(LiveDims.MiniPlayerWidth, LiveDims.MiniPlayerHeight)
+            .clip(RoundedCornerShape(LiveDims.VideoRadius))
+            .background(LiveColors.PanelDeep),
+    ) {
+        // Fallback brand gradient while video is loading or channel is null.
+        if (channel == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(LiveColors.Panel, LiveColors.Bg),
+                        )
+                    ),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(channel.brandBg, LiveColors.Bg),
+                        )
+                    ),
+            )
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = exoPlayer
+                        useController = false
+                    }
+                },
+                update = { it.player = exoPlayer },
+                modifier = Modifier.fillMaxSize(),
+            )
+            LiveBug(modifier = Modifier.align(Alignment.TopEnd).padding(10.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LiveBug(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "live-bug")
+    val alpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "live-alpha",
+    )
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xAA000000))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .alpha(alpha)
+                .background(LiveColors.LiveRed, CircleShape),
+        )
+        Text(
+            text = "LIVE",
+            style = LiveType.Badge.copy(color = Color.White),
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun InfoColumn(
+    channel: EnrichedChannel?,
+    nowNext: IptvNowNext?,
+    isFavorite: Boolean,
+    onFavoriteToggle: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ChannelIdentityRow(channel = channel)
+        NowCard(channel = channel, nowNext = nowNext)
+        NextRow(nowNext = nowNext)
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ChannelIdentityRow(channel: EnrichedChannel?) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (channel != null) {
+            ChannelLogo(channel = channel, size = 48.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "CH " + channel.number,
+                        style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                    )
+                    Text(
+                        text = channel.genre.name.uppercase(),
+                        style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                    )
+                }
+                Text(
+                    text = channel.name,
+                    style = LiveType.ChannelName.copy(color = LiveColors.Fg, fontSize = 19.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    QualityBadge(channel.quality)
+                    channel.country?.takeIf { it != channel.lang }?.let { LangBadge(it) }
+                    LangBadge(channel.lang)
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(LiveColors.Panel),
+            )
+            Text(
+                text = "—",
+                style = LiveType.ChannelName.copy(color = LiveColors.FgMute),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun QualityBadge(q: Quality) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(LiveColors.Panel)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(q.label, style = LiveType.Badge.copy(color = LiveColors.Fg))
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LangBadge(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(LiveColors.Panel)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(text.uppercase(), style = LiveType.Badge.copy(color = LiveColors.FgDim))
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
+    val now = nowNext?.now
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(LiveDims.CardRadius))
+            .background(LiveColors.PanelRaised)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("NOW", style = LiveType.SectionTag.copy(color = LiveColors.Accent))
+            Text(
+                text = formatTimeWindow(now),
+                style = LiveType.TimeMono.copy(color = LiveColors.Fg),
+            )
+            Spacer(Modifier.weight(1f))
+            val remaining = remainingLabel(now)
+            if (remaining.isNotBlank()) {
+                Text(
+                    text = remaining,
+                    style = LiveType.TimeMono.copy(color = LiveColors.Accent),
+                )
+            }
+        }
+        Text(
+            text = now?.title ?: channel?.name ?: "No programme data",
+            style = LiveType.ProgramTitle.copy(color = LiveColors.Fg),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (!now?.description.isNullOrBlank()) {
+            Text(
+                text = now!!.description!!,
+                style = LiveType.BodySynopsis.copy(color = LiveColors.FgDim),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        val progress = progressOf(now)
+        if (progress != null) {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = LiveColors.Accent,
+                trackColor = LiveColors.Panel,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun NextRow(nowNext: IptvNowNext?) {
+    val next = nowNext?.next ?: return
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("NEXT", style = LiveType.SectionTag.copy(color = LiveColors.FgMute))
+        Text(
+            text = formatClock(next.startUtcMillis),
+            style = LiveType.TimeMono.copy(color = LiveColors.FgDim),
+        )
+        Text(
+            text = next.title,
+            style = LiveType.CellTitle.copy(color = LiveColors.FgDim),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+internal fun formatTimeWindow(p: IptvProgram?): String {
+    if (p == null) return "—"
+    return "${formatClock(p.startUtcMillis)} – ${formatClock(p.endUtcMillis)}"
+}
+
+internal fun formatClock(utcMillis: Long): String {
+    val c = java.util.Calendar.getInstance()
+    c.timeInMillis = utcMillis
+    return "%02d:%02d".format(c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE))
+}
+
+internal fun remainingLabel(p: IptvProgram?): String {
+    if (p == null) return ""
+    val now = System.currentTimeMillis()
+    if (now !in p.startUtcMillis..p.endUtcMillis) return ""
+    val minsLeft = ((p.endUtcMillis - now) / 60_000L).coerceAtLeast(0L)
+    return if (minsLeft >= 60) "${minsLeft / 60}h ${minsLeft % 60}m left" else "${minsLeft}m left"
+}
+
+internal fun progressOf(p: IptvProgram?): Float? {
+    if (p == null) return null
+    val span = (p.endUtcMillis - p.startUtcMillis).toFloat()
+    if (span <= 0f) return null
+    val done = (System.currentTimeMillis() - p.startUtcMillis).toFloat()
+    return (done / span).coerceIn(0f, 1f)
+}

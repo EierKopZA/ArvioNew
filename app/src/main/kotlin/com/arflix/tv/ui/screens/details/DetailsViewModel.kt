@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.screens.details
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.CastMember
@@ -170,6 +171,10 @@ class DetailsViewModel @Inject constructor(
     private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
     private val animeScoreRepository: AnimeScoreRepository
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "DetailsViewModel"
+    }
 
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
@@ -1134,6 +1139,14 @@ class DetailsViewModel @Inject constructor(
                 subtitles = emptyList()
             )
 
+            if (requestMediaType == MediaType.MOVIE) {
+                val title = _uiState.value.item?.title.orEmpty()
+                Log.d(
+                    TAG,
+                    "[MovieSources] loadStreams start requestId=$requestId mediaId=$requestMediaId imdbId=${imdbId ?: "null"} title=$title"
+                )
+            }
+
             try {
                 // Get current item's genre IDs and language for anime detection
                 val item = _uiState.value.item
@@ -1157,7 +1170,47 @@ class DetailsViewModel @Inject constructor(
                 }
 
                 val result = if (currentMediaType == MediaType.MOVIE) {
+                    val enabledAddons = streamRepository.installedAddons.first()
+                        .filter { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE }
+                    val enabledStreamingAddons = enabledAddons.size
+                    val stremioCount = enabledAddons.count { it.runtimeKind == com.arflix.tv.data.model.RuntimeKind.STREMIO }
+                    val cloudstreamCount = enabledAddons.count { it.runtimeKind == com.arflix.tv.data.model.RuntimeKind.CLOUDSTREAM }
+                    val enabledAddonNames = enabledAddons.take(4).joinToString(",") { it.name }
+                    val cloudstreamEnabledAddons = enabledAddons
+                        .filter { it.runtimeKind == com.arflix.tv.data.model.RuntimeKind.CLOUDSTREAM }
+                    val cloudstreamUsableArtifacts = cloudstreamEnabledAddons
+                        .count { !it.installedArtifactPath.isNullOrBlank() }
+                    val cloudstreamMissingArtifacts = cloudstreamEnabledAddons.size - cloudstreamUsableArtifacts
+                    Log.d(
+                        TAG,
+                        "[MovieSources] enabledStreamingAddons=$enabledStreamingAddons requestId=$requestId mediaId=$requestMediaId"
+                    )
+                    Log.d(
+                        TAG,
+                        "[MovieSources] addonBreakdown stremio=$stremioCount cloudstream=$cloudstreamCount names=$enabledAddonNames"
+                    )
+                    Log.d(
+                        TAG,
+                        "[MovieSources] cloudstreamArtifacts usable=$cloudstreamUsableArtifacts missing=$cloudstreamMissingArtifacts"
+                    )
+                    if (cloudstreamCount > 0 && cloudstreamUsableArtifacts == 0) {
+                        Log.w(
+                            TAG,
+                            "[MovieSources] cloudstream addon enabled but no installed artifact path found. Reinstall the plugin in Settings > Addons."
+                        )
+                    }
+                    if (enabledStreamingAddons == 0) {
+                        Log.w(
+                            TAG,
+                            "[MovieSources] no streaming addons enabled. Install/enable sources in Settings > Addons."
+                        )
+                    }
+
                     if (imdbId.isNullOrBlank()) {
+                        Log.w(
+                            TAG,
+                            "[MovieSources] loadStreams skipped (missing imdbId) requestId=$requestId mediaId=$requestMediaId"
+                        )
                         _uiState.value = _uiState.value.copy(
                             isLoadingStreams = false,
                             streams = emptyList(),
@@ -1178,6 +1231,11 @@ class DetailsViewModel @Inject constructor(
                             (progressive.streams + existingVod)
                                 .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
                         )
+                        Log.d(
+                            TAG,
+                            "[MovieSources] progressive requestId=$requestId final=${progressive.isFinal} " +
+                                "incoming=${progressive.streams.size} merged=${mergedStreams.size} subtitles=${progressive.subtitles.size}"
+                        )
                         val addonCount = streamRepository.installedAddons.first()
                             .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE }
                         _uiState.value = _uiState.value.copy(
@@ -1186,6 +1244,12 @@ class DetailsViewModel @Inject constructor(
                             subtitles = progressive.subtitles,
                             hasStreamingAddons = addonCount > 0
                         )
+                        if (progressive.isFinal) {
+                            Log.d(
+                                TAG,
+                                "[MovieSources] loadStreams completed requestId=$requestId mediaId=$requestMediaId totalStreams=${mergedStreams.size}"
+                            )
+                        }
                     }
                     return@launch
                 } else {
@@ -1234,6 +1298,13 @@ class DetailsViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (!isCurrentRequest()) return@launch
+                if (requestMediaType == MediaType.MOVIE) {
+                    Log.e(
+                        TAG,
+                        "[MovieSources] loadStreams failed requestId=$requestId mediaId=$requestMediaId message=${e.message}",
+                        e
+                    )
+                }
                 _uiState.value = _uiState.value.copy(isLoadingStreams = false)
             }
         }

@@ -24,9 +24,10 @@ import com.arflix.tv.ui.screens.details.DetailsScreen
 import com.arflix.tv.ui.screens.home.HomeScreen
 import com.arflix.tv.ui.screens.login.LoginScreen
 import com.arflix.tv.ui.screens.player.PlayerScreen
+import com.arflix.tv.ui.screens.collections.CollectionDetailsScreen
 import com.arflix.tv.ui.screens.search.SearchScreen
 import com.arflix.tv.ui.screens.settings.SettingsScreen
-import com.arflix.tv.ui.screens.tv.TvScreen
+import com.arflix.tv.ui.screens.tv.live.LiveTvScreen
 import com.arflix.tv.ui.screens.watchlist.WatchlistScreen
 import com.arflix.tv.ui.screens.profile.ProfileSelectionScreen
 
@@ -38,6 +39,11 @@ sealed class Screen(val route: String) {
     object Home : Screen("home")
     object Search : Screen("search")
     object Watchlist : Screen("watchlist")
+    object CollectionDetails : Screen("collections/{catalogId}") {
+        fun createRoute(catalogId: String): String {
+            return "collections/${java.net.URLEncoder.encode(catalogId, "UTF-8")}" 
+        }
+    }
     object Tv : Screen("tv?channelId={channelId}&streamUrl={streamUrl}") {
         fun createRoute(channelId: String? = null, streamUrl: String? = null): String {
             if (channelId == null) return "tv"
@@ -162,6 +168,9 @@ fun AppNavigation(
                 onNavigateToDetails = { mediaType, mediaId, initialSeason, initialEpisode ->
                     navController.navigate(Screen.Details.createRoute(mediaType, mediaId, initialSeason, initialEpisode))
                 },
+                onNavigateToCollection = { catalogId ->
+                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
+                },
                 onNavigateToSearch = {
                     navigateTopLevel(Screen.Search.route)
                 },
@@ -236,7 +245,7 @@ fun AppNavigation(
         ) { backStackEntry ->
             val initialChannelId = backStackEntry.arguments?.getString("channelId")
             val initialStreamUrl = backStackEntry.arguments?.getString("streamUrl")
-            TvScreen(
+            LiveTvScreen(
                 currentProfile = currentProfile,
                 initialChannelId = initialChannelId,
                 initialStreamUrl = initialStreamUrl,
@@ -295,6 +304,31 @@ fun AppNavigation(
                     navController.navigate("settings?autoCloudAuth=true")
                 },
                 isCloudConnected = isCloudConnected
+            )
+        }
+
+        // Details screen
+        composable(
+            route = Screen.CollectionDetails.route,
+            arguments = listOf(navArgument("catalogId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val catalogId = backStackEntry.arguments?.getString("catalogId").orEmpty()
+            if (catalogId.isBlank()) {
+                navigateHome()
+                return@composable
+            }
+            CollectionDetailsScreen(
+                catalogId = catalogId,
+                currentProfile = currentProfile,
+                onNavigateToDetails = { mediaType, mediaId ->
+                    navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
+                },
+                onNavigateToHome = { navigateHome() },
+                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onBack = { navController.popBackStack() }
             )
         }
 

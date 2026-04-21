@@ -31,6 +31,7 @@ interface TmdbApi {
         @Query("watch_region") watchRegion: String = "US",
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("with_genres") genres: String? = null,
+        @Query("with_people") people: String? = null,
         @Query("with_original_language") originalLanguage: String? = null,
         @Query("first_air_date_year") year: Int? = null,
         @Query("vote_count.gte") minVoteCount: Int? = null,
@@ -45,6 +46,7 @@ interface TmdbApi {
     suspend fun discoverMovies(
         @Query("api_key") apiKey: String,
         @Query("with_genres") genres: String? = null,
+        @Query("with_crew") crew: String? = null,
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("vote_count.gte") minVoteCount: Int? = null,
         @Query("with_keywords") keywords: String? = null,
@@ -52,6 +54,8 @@ interface TmdbApi {
         @Query("primary_release_year") year: Int? = null,
         @Query("release_date.gte") releaseDateGte: String? = null,
         @Query("release_date.lte") releaseDateLte: String? = null,
+        @Query("with_watch_providers") watchProviders: Int? = null,
+        @Query("watch_region") watchRegion: String? = null,
         @Query("language") language: String? = null,
         @Query("page") page: Int = 1
     ): TmdbListResponse
@@ -171,6 +175,19 @@ interface TmdbApi {
         @Query("api_key") apiKey: String,
         @Query("language") language: String? = null
     ): TmdbReviewsResponse
+
+    /**
+     * TMDB "collection" endpoint. Returns the explicit list of films that belong
+     * to a franchise (e.g. Harry Potter = 1241, LOTR = 119, James Bond = 645).
+     * Used by the Collections feature to populate franchise rows without
+     * relying on external addons.
+     */
+    @GET("collection/{collection_id}")
+    suspend fun getTmdbCollection(
+        @Path("collection_id") collectionId: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String? = null
+    ): TmdbCollectionResponse
 }
 
 // Response data classes
@@ -259,7 +276,7 @@ data class TmdbGenre(val id: Int = 0, val name: String = "")
 data class TmdbCreditsResponse(val id: Int = 0, val cast: List<TmdbCastMember> = emptyList())
 data class TmdbCastMember(val id: Int = 0, val name: String = "", val character: String? = null, @SerializedName("profile_path") val profilePath: String? = null, val order: Int = 0)
 data class TmdbImagesResponse(val id: Int = 0, val logos: List<TmdbImage> = emptyList(), val backdrops: List<TmdbImage> = emptyList())
-data class TmdbImage(@SerializedName("file_path") val filePath: String? = null, @SerializedName("iso_639_1") val iso6391: String? = null, val width: Int = 0, val height: Int = 0)
+data class TmdbImage(@SerializedName("file_path") val filePath: String? = null, @SerializedName("iso_639_1") val iso6391: String? = null, val width: Int = 0, val height: Int = 0, @SerializedName("vote_average") val voteAverage: Float = 0f, @SerializedName("vote_count") val voteCount: Int = 0)
 data class TmdbVideosResponse(val id: Int = 0, val results: List<TmdbVideo> = emptyList())
 data class TmdbVideo(val id: String = "", val key: String = "", val name: String = "", val site: String = "", val type: String = "", val official: Boolean = false)
 data class TmdbExternalIds(@SerializedName("imdb_id") val imdbId: String? = null, @SerializedName("tvdb_id") val tvdbId: Int? = null)
@@ -273,6 +290,16 @@ data class TmdbReview(val id: String = "", val author: String = "", @SerializedN
 data class TmdbAuthorDetails(val name: String = "", val username: String = "", @SerializedName("avatar_path") val avatarPath: String? = null, val rating: Float? = null)
 data class TmdbFindResponse(@SerializedName("movie_results") val movieResults: List<TmdbFindItem> = emptyList(), @SerializedName("tv_results") val tvResults: List<TmdbFindItem> = emptyList())
 data class TmdbFindItem(val id: Int = 0, val popularity: Float = 0f)
+
+/** Response for /collection/{id} — the `parts` array contains the films in a franchise. */
+data class TmdbCollectionResponse(
+    val id: Int = 0,
+    val name: String = "",
+    val overview: String? = null,
+    @SerializedName("poster_path") val posterPath: String? = null,
+    @SerializedName("backdrop_path") val backdropPath: String? = null,
+    val parts: List<TmdbMediaItem> = emptyList()
+)
 
 data class TmdbTvSeason(
     val id: Int = 0,

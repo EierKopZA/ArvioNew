@@ -1,0 +1,394 @@
+package com.arflix.tv.ui.screens.tv.live
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Text
+import com.arflix.tv.data.model.IptvNowNext
+import com.arflix.tv.data.model.IptvProgram
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+
+/**
+ * EPG grid per spec §3.4.
+ * Window: (now - 1h rounded to :30) → +9h = 10h wide.
+ * Constants: 5dp/min, 150dp per 30min, rows 84dp tall.
+ * Scroll sync: header ↔ body (horizontal) + channel column ↔ body (vertical).
+ */
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun EpgGrid(
+    channels: List<EnrichedChannel>,
+    nowNext: Map<String, IptvNowNext>,
+    selectedChannelId: String?,
+    onChannelSelect: (EnrichedChannel) -> Unit,
+    onChannelFavoriteToggle: (String) -> Unit,
+    favorites: Set<String>,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val pxPerMin = LiveDims.EpgPxPerMinute
+
+    val windowStartMillis = remember { roundedWindowStart() }
+    val windowEndMillis = remember(windowStartMillis) { windowStartMillis + 10L * 60 * 60 * 1000 }
+    val slots = remember { buildHalfHourSlots(windowStartMillis, 20) }
+
+    // Shared horizontal scroll state between header and body rows.
+    val hScroll = rememberScrollState()
+    // Vertical scroll state shared across channel column and program-cell column.
+    val vListState = rememberLazyListState()
+
+    val scope = rememberCoroutineScope()
+
+    // Auto-scroll horizontally so `now` is ~1h from the left edge (the spec's
+    // "now − 1h rounded" window places NOW at slot index 2).
+    LaunchedEffect(Unit) {
+        with(density) {
+            val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+            val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 220.dp.toPx().toInt()
+            hScroll.scrollTo(targetPx.coerceAtLeast(0))
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().background(LiveColors.Bg),
+    ) {
+        // ─── Header row ─────────────────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(LiveDims.EpgHeaderHeight)
+                .background(LiveColors.PanelDeep),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Sticky channel-column label + current CH indicator
+            Row(
+                modifier = Modifier
+                    .width(LiveDims.EpgChannelColWidth)
+                    .fillMaxHeight()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("CHANNELS", style = LiveType.SectionTag.copy(color = LiveColors.FgMute))
+                    Text(channels.size.toString(),
+                        style = LiveType.NumberMono.copy(color = LiveColors.FgDim))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("CH", style = LiveType.SectionTag.copy(color = LiveColors.Accent))
+                    val currentNumber = channels.firstOrNull { it.id == selectedChannelId }?.number
+                    Text(
+                        currentNumber?.toString() ?: "—",
+                        style = LiveType.NumberMono.copy(color = LiveColors.Accent),
+                    )
+                }
+            }
+            // Divider
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(LiveColors.DividerStrong)
+            )
+            // Scrolling time ruler with NOW pill pinned to the current minute.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(hScroll),
+            ) {
+                Row {
+                    slots.forEach { slot ->
+                        Box(
+                            modifier = Modifier
+                                .width(LiveDims.EpgHalfHourWidth)
+                                .fillMaxHeight()
+                                .padding(start = 12.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            Text(
+                                text = slot.label,
+                                style = LiveType.TimeMono.copy(color = LiveColors.FgDim),
+                            )
+                        }
+                    }
+                }
+                // Cyan "NOW hh:mm" pill hovering above the now-line inside the header.
+                val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+                val nowOffset = (nowMin * pxPerMin).dp
+                Box(
+                    modifier = Modifier
+                        .offset(x = nowOffset - 46.dp, y = 6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(LiveColors.Accent)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        text = "NOW " + formatClock(System.currentTimeMillis()),
+                        style = LiveType.Badge.copy(color = LiveColors.Bg),
+                    )
+                }
+            }
+        }
+
+        // Thin divider under header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(LiveColors.Divider),
+        )
+
+        // ─── Body ───────────────────────────────────────────────────
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Channel column (sticky left, vertical scroll only)
+                LazyColumn(
+                    state = vListState,
+                    modifier = Modifier
+                        .width(LiveDims.EpgChannelColWidth)
+                        .fillMaxHeight()
+                        .background(LiveColors.PanelDeep),
+                ) {
+                    itemsIndexed(channels, key = { _, ch -> ch.id }) { idx, ch ->
+                        ChannelRow(
+                            channel = ch,
+                            isActive = ch.id == selectedChannelId,
+                            nowNext = nowNext[ch.id],
+                            isFavorite = ch.id in favorites,
+                            stripe = idx % 2 == 1,
+                            onClick = { onChannelSelect(ch) },
+                            onFavoriteToggle = { onChannelFavoriteToggle(ch.id) },
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(LiveColors.Divider)
+                )
+                // Program grid (scrolls both ways, synced with above)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = vListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .horizontalScroll(hScroll),
+                    ) {
+                        itemsIndexed(channels, key = { _, ch -> ch.id }) { idx, ch ->
+                            ProgramsRow(
+                                channel = ch,
+                                programs = programsInWindow(nowNext[ch.id], windowStartMillis, windowEndMillis),
+                                windowStartMillis = windowStartMillis,
+                                pxPerMin = pxPerMin,
+                                stripe = idx % 2 == 1,
+                                onClick = { onChannelSelect(ch) },
+                            )
+                        }
+                    }
+                    // NOW glow line across full body
+                    NowLine(
+                        windowStartMillis = windowStartMillis,
+                        pxPerMin = pxPerMin,
+                        hScrollOffsetPx = hScroll.value,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ProgramsRow(
+    channel: EnrichedChannel,
+    programs: List<IptvProgram>,
+    windowStartMillis: Long,
+    pxPerMin: Int,
+    stripe: Boolean,
+    onClick: () -> Unit,
+) {
+    val totalWidth = LiveDims.EpgHalfHourWidth * 20
+    val nowMillis = System.currentTimeMillis()
+    Box(
+        modifier = Modifier
+            .width(totalWidth)
+            .height(LiveDims.EpgRowHeight)
+            .background(if (stripe) LiveColors.RowStripe else Color.Transparent),
+    ) {
+        if (programs.isEmpty()) {
+            // No EPG data for this channel — still render a wide NOW placeholder
+            // pinned to the current slot so the body doesn't look bare and the
+            // user can tune with one click.
+            val nowMin = ((nowMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)
+            val offset = (nowMin * pxPerMin).dp - 90.dp
+            val width = 180.dp
+            Box(
+                modifier = Modifier
+                    .offset(x = offset.coerceAtLeast(0.dp))
+                    .width(width)
+                    .height(LiveDims.EpgRowHeight)
+                    .padding(horizontal = 3.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(LiveDims.CellRadius))
+                    .background(LiveColors.Panel)
+                    .pointerInput(channel.id) { detectTapGestures(onTap = { onClick() }) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    text = channel.name,
+                    style = LiveType.CellTitle.copy(color = LiveColors.FgDim),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        } else {
+            programs.forEach { p ->
+                val startMin = ((p.startUtcMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)
+                val durationMin = ((p.endUtcMillis - p.startUtcMillis) / 60_000L).toInt().coerceAtLeast(15)
+                val offset = (startMin * pxPerMin).dp
+                val width = (durationMin * pxPerMin).dp
+                val isNow = nowMillis in p.startUtcMillis..p.endUtcMillis
+                val isPast = p.endUtcMillis < nowMillis
+                ProgramCell(
+                    program = p,
+                    width = width,
+                    isNow = isNow,
+                    isPast = isPast,
+                    isFocusTarget = isNow,
+                    onClick = onClick,
+                    modifier = Modifier.offset(x = offset),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun NowLine(
+    windowStartMillis: Long,
+    pxPerMin: Int,
+    hScrollOffsetPx: Int,
+) {
+    val density = LocalDensity.current
+    val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+    val xDp = with(density) { ((nowMin * pxPerMin).dp.toPx() - hScrollOffsetPx).toDp() }
+    if (xDp < 0.dp) return
+    Box(
+        modifier = Modifier
+            .offset(x = xDp)
+            .fillMaxHeight()
+            .width(2.dp)
+            .background(LiveColors.Accent),
+    )
+    // Glow behind the 2dp line
+    Box(
+        modifier = Modifier
+            .offset(x = xDp - 3.dp)
+            .fillMaxHeight()
+            .width(8.dp)
+            .background(LiveColors.Accent.copy(alpha = 0.22f)),
+    )
+}
+
+private data class TimeSlot(val millis: Long, val label: String, val isNow: Boolean)
+
+private fun buildHalfHourSlots(startMillis: Long, count: Int): List<TimeSlot> {
+    val out = ArrayList<TimeSlot>(count)
+    val now = System.currentTimeMillis()
+    for (i in 0 until count) {
+        val t = startMillis + i * 30L * 60_000L
+        val isNow = now in t..(t + 30L * 60_000L - 1)
+        out += TimeSlot(t, formatClock(t), isNow)
+    }
+    return out
+}
+
+/** Round the window start down to the nearest half-hour, shifted 1h back. */
+private fun roundedWindowStart(): Long {
+    val now = System.currentTimeMillis()
+    val cal = java.util.Calendar.getInstance()
+    cal.timeInMillis = now
+    cal.set(java.util.Calendar.SECOND, 0)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    val min = cal.get(java.util.Calendar.MINUTE)
+    cal.set(java.util.Calendar.MINUTE, if (min >= 30) 30 else 0)
+    return cal.timeInMillis - 60L * 60_000L
+}
+
+private fun programsInWindow(
+    item: IptvNowNext?,
+    start: Long,
+    end: Long,
+): List<IptvProgram> {
+    if (item == null) return emptyList()
+    val buf = ArrayList<IptvProgram>(16)
+    fun add(p: IptvProgram?) {
+        if (p == null) return
+        if (p.endUtcMillis > start && p.startUtcMillis < end) buf.add(p)
+    }
+    item.recent.forEach(::add)
+    add(item.now)
+    add(item.next)
+    add(item.later)
+    item.upcoming.forEach(::add)
+    // De-dup by start time
+    return buf.distinctBy { it.startUtcMillis }
+        .sortedBy { it.startUtcMillis }
+}

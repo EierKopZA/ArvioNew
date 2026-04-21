@@ -787,9 +787,9 @@ class IptvRepository @Inject constructor(
                 // ── Slow path: XMLTV download (always runs to fill remaining channels) ──
                 if (epgCandidates.isNotEmpty()) {
                     val epgCandidatesToTry = epgCandidates
-                    var xmltvResolved = false
+                    var bestCoverage = epgCoverageRatio(channels, resolvedNowNext)
+                    var bestNowNext = resolvedNowNext
                     epgCandidatesToTry.forEachIndexed { index, epgUrl ->
-                        if (xmltvResolved) return@forEachIndexed
                         val pct = (90 + ((index * 8) / epgCandidatesToTry.size.coerceAtLeast(1))).coerceIn(90, 98)
                         onProgress(IptvLoadProgress("Loading full EPG (${index + 1}/${epgCandidatesToTry.size})...", pct))
                         val attempt = runCatching {
@@ -803,19 +803,26 @@ class IptvRepository @Inject constructor(
                                 // Merge: XMLTV as base, then overlay short EPG (fresher per-channel data)
                                 val merged = ConcurrentHashMap(parsed)
                                 shortEpgResult?.let { merged.putAll(it) } // Short EPG wins for channels it covers
-                                resolvedNowNext = merged
-                                cachedNowNext = merged
-                                cachedEpgAt = System.currentTimeMillis()
-                                epgUpdated = true
-                                preferredDerivedEpgUrl = epgUrl
-                                resolved = true
-                                xmltvResolved = true
-                                System.err.println("[EPG] XMLTV SUCCESS: ${parsed.size} from XMLTV + ${shortEpgResult?.size ?: 0} from short EPG = ${merged.size} total")
+                                val coverage = epgCoverageRatio(channels, merged)
+                                if (coverage >= bestCoverage) {
+                                    bestCoverage = coverage
+                                    bestNowNext = merged
+                                    preferredDerivedEpgUrl = epgUrl
+                                    resolved = true
+                                    System.err.println("[EPG] XMLTV candidate ${index + 1} coverage=${(coverage * 100).toInt()}% (best so far)")
+                                }
                             }
                         } else {
                             epgFailureMessage = attempt.exceptionOrNull()?.message
                             System.err.println("[EPG] XMLTV attempt ${index + 1} failed: ${epgFailureMessage}")
                         }
+                    }
+                    if (resolved) {
+                        resolvedNowNext = bestNowNext
+                        cachedNowNext = ConcurrentHashMap(bestNowNext)
+                        cachedEpgAt = System.currentTimeMillis()
+                        epgUpdated = true
+                        System.err.println("[EPG] Final best EPG coverage=${(bestCoverage * 100).toInt()}% for ${channels.size} channels")
                     }
                 }
 
@@ -3326,7 +3333,12 @@ class IptvRepository @Inject constructor(
         val rest = xtreamChannels.filter { it.id !in alreadyPrioritized }
         val prioritized = favChannels + favGroupChannels + rest
 
-        val toFetch = prioritized.take(2000)
+        // Raised from 2000 → 8000. Providers that serve short_epg per-stream
+        // tend to tolerate this; the bottleneck is coroutine concurrency, not
+        // per-call weight. On a 52k-channel list this lifts EPG coverage from
+        // ~0.3% to ~2-3% of channels, and critically includes a far wider
+        // slice of non-favourite categories.
+        val toFetch = prioritized.take(8000)
         System.err.println("[EPG] Xtream short EPG: fetching ${toFetch.size}/${xtreamChannels.size} channels")
         if (toFetch.isEmpty()) return null
 
@@ -3946,6 +3958,15 @@ class IptvRepository @Inject constructor(
         }
     }
 
+    private fun epgCoverageRatio(channels: List<IptvChannel>, nowNext: Map<String, IptvNowNext>): Float {
+        if (channels.isEmpty() || nowNext.isEmpty()) return 0f
+        val covered = channels.count { ch ->
+            val item = nowNext[ch.id]
+            item != null && (item.now != null || item.next != null || item.later != null || item.upcoming.isNotEmpty())
+        }
+        return covered.toFloat() / channels.size.toFloat()
+    }
+
     private fun parseXmlTvDate(rawValue: String?): Long {
         if (rawValue.isNullOrBlank()) return 0L
         val value = rawValue.trim()
@@ -4126,8 +4147,7 @@ class IptvRepository @Inject constructor(
     private fun cleanupStaleEpgTempFiles(maxAgeMs: Long = 3 * 60_000L) {
         runCatching {
             val now = System.currentTimeMillis()
-            context.cacheDir.listFiles()?.forEach { file ->
-                if (!file.name.startsWith("epg_") || !file.name.endsWith(".xml")) return@forEach
+            context.cacheDir.listFiles { _, name -> name.startsWith("epg_") && name.endsWith(".xml") }?.forEach { file ->
                 val age = now - file.lastModified()
                 if (age > maxAgeMs) {
                     runCatching { file.delete() }
@@ -4140,8 +4160,7 @@ class IptvRepository @Inject constructor(
         runCatching {
             val dir = File(context.filesDir, "iptv_cache")
             if (!dir.exists()) return
-            dir.listFiles()?.forEach { file ->
-                if (!file.name.endsWith("_iptv_cache.json")) return@forEach
+            dir.listFiles { _, name -> name.endsWith("_iptv_cache.json") }?.forEach { file ->
                 if (file.length() > MAX_IPTV_CACHE_BYTES * 2) {
                     runCatching { file.delete() }
                 }

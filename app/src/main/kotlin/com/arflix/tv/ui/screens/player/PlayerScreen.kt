@@ -137,6 +137,7 @@ import com.arflix.tv.ui.components.StreamSelector
 import com.arflix.tv.ui.components.WaveLoadingDots
 import androidx.compose.ui.text.style.TextOverflow
 import com.arflix.tv.util.LocalDeviceType
+import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.PurpleDark
@@ -145,6 +146,7 @@ import com.arflix.tv.ui.theme.PurplePrimary
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import androidx.compose.runtime.rememberCoroutineScope
@@ -153,6 +155,9 @@ import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -184,9 +189,11 @@ fun PlayerScreen(
     val activity = remember(context) { context.findActivity() }
     val uiState by viewModel.uiState.collectAsState()
     val latestUiState by rememberUpdatedState(uiState)
+    val clockFormat = rememberPlayerClockFormat()
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
     val deviceType = LocalDeviceType.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // Keep playback in landscape while the player is visible, regardless of the
     // device's auto-rotate lock. Restore the app's prior orientation afterward.
@@ -231,6 +238,7 @@ fun PlayerScreen(
     var showSkipOverlay by remember { mutableStateOf(false) }
     var lastSkipTime by remember { mutableLongStateOf(0L) }
     var skipStartPosition by remember { mutableLongStateOf(0L) }  // Position when skipping started
+    var skipPreviewPosition by remember { mutableLongStateOf(0L) }
     var isControlScrubbing by remember { mutableStateOf(false) }
     var scrubPreviewPosition by remember { mutableLongStateOf(0L) }
     var controlsSeekJob by remember { mutableStateOf<Job?>(null) }
@@ -717,6 +725,23 @@ fun PlayerScreen(
             }
     }
 
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    if (exoPlayer.isPlaying) {
+                        exoPlayer.pause()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val queueControlsSeek: (Long) -> Unit = queueSeek@{ deltaMs ->
         if (playerReleased) return@queueSeek
         val basePosition = if (isControlScrubbing) {
@@ -1057,6 +1082,7 @@ fun PlayerScreen(
             showSkipOverlay = false
             skipAmount = 0
             skipStartPosition = 0L
+            skipPreviewPosition = 0L
         }
     }
 
@@ -1408,6 +1434,12 @@ fun PlayerScreen(
         }
     }
 
+    BackHandler(
+        enabled = showControls && !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
+    ) {
+        showControls = false
+    }
+
     val playerDeviceType = LocalDeviceType.current
     val isTouchDevice = playerDeviceType.isTouchDevice()
     val isTablet = playerDeviceType == com.arflix.tv.util.DeviceType.TABLET
@@ -1530,6 +1562,13 @@ fun PlayerScreen(
                             }
                         }
                         else -> Unit // fall through to normal handling
+                    }
+
+                    if ((event.key == Key.Back || event.key == Key.Escape) &&
+                        showControls && !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
+                    ) {
+                        showControls = false
+                        return@onKeyEvent true
                     }
 
                     // Handle error modal
@@ -1664,6 +1703,7 @@ fun PlayerScreen(
                                 lastSkipTime = now
                                 val unclamped = (skipStartPosition + (skipAmount * 1000L)).coerceAtLeast(0L)
                                 val targetPosition = if (duration > 0L) unclamped.coerceAtMost(duration) else unclamped
+                                skipPreviewPosition = targetPosition
                                 exoPlayer.seekTo(targetPosition)
                                 showSkipOverlay = true
                                 true
@@ -1686,6 +1726,7 @@ fun PlayerScreen(
                                 lastSkipTime = now
                                 val unclamped = (skipStartPosition + (skipAmount * 1000L)).coerceAtLeast(0L)
                                 val targetPosition = if (duration > 0L) unclamped.coerceAtMost(duration) else unclamped
+                                skipPreviewPosition = targetPosition
                                 exoPlayer.seekTo(targetPosition)
                                 showSkipOverlay = true
                                 true
@@ -1813,22 +1854,7 @@ fun PlayerScreen(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Text(
-                        text = when {
-                            uiState.isLoadingSubtitles -> "Fetching subtitles..."
-                            uiState.isLoadingStreams -> "Loading streams..."
-                            uiState.selectedStreamUrl != null && !hasPlaybackStarted -> "Starting playback..."
-                            else -> "Loading..."
-                        },
-                        style = ArflixTypography.body,
-                        color = TextSecondary
-                    )
-                }
+                PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
             }
         }
 
@@ -1863,7 +1889,7 @@ fun PlayerScreen(
 
         // Netflix-style Controls Overlay
         AnimatedVisibility(
-            visible = showControls && !showSubtitleMenu && !showSourceMenu,
+            visible = hasPlaybackStarted && showControls && !showSubtitleMenu && !showSourceMenu,
             enter = fadeIn(androidx.compose.animation.core.tween(150)),
             exit = fadeOut(androidx.compose.animation.core.tween(200))
         ) {
@@ -1954,14 +1980,13 @@ fun PlayerScreen(
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
                         val currentTime = remember { mutableStateOf("") }
                         val endsAtTime = remember { mutableStateOf("") }
-                        LaunchedEffect(duration, currentPosition) {
+                        LaunchedEffect(duration, currentPosition, clockFormat) {
                             while (true) {
                                 val now = System.currentTimeMillis()
-                                val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                currentTime.value = sdf.format(java.util.Date(now))
+                                currentTime.value = formatPlayerClockTime(now, clockFormat)
                                 if (duration > 0 && currentPosition >= 0) {
                                     val remainingMs = (duration - currentPosition).coerceAtLeast(0L)
-                                    endsAtTime.value = sdf.format(java.util.Date(now + remainingMs))
+                                    endsAtTime.value = formatPlayerClockTime(now + remainingMs, clockFormat)
                                 } else { endsAtTime.value = "" }
                                 kotlinx.coroutines.delay(1000)
                             }
@@ -2433,19 +2458,49 @@ fun PlayerScreen(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 120.dp)
         ) {
-            Text(
-                text = if (skipAmount >= 0) "+${skipAmount}s" else "${skipAmount}s",
-                style = ArflixTypography.sectionTitle.copy(
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    shadow = Shadow(
-                        color = Color.Black,
-                        offset = Offset(2f, 2f),
-                        blurRadius = 8f
-                    )
-                ),
-                color = Color.White
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = if (skipAmount >= 0) "+${skipAmount}s" else "${skipAmount}s",
+                    style = ArflixTypography.sectionTitle.copy(
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        shadow = Shadow(
+                            color = Color.Black,
+                            offset = Offset(2f, 2f),
+                            blurRadius = 8f
+                        )
+                    ),
+                    color = Color.White
+                )
+
+                if (duration > 0L) {
+                    val previewPosition = skipPreviewPosition
+                        .takeIf { it > 0L }
+                        ?: currentPosition
+                    val previewProgress = (previewPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(3.dp))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(previewProgress)
+                                .height(5.dp)
+                                .background(Pink, RoundedCornerShape(3.dp))
+                        )
+                    }
+                }
+            }
         }
 
         // Error modal — friendly setup guide for no-addons, red error for actual playback failures
@@ -2800,6 +2855,33 @@ private fun getFullLanguageName(code: String?): String {
         normalizedCode == "und" || normalizedCode == "unknown" -> "Unknown"
         else -> code.uppercase()
     }
+}
+
+@Composable
+private fun rememberPlayerClockFormat(): String {
+    val context = LocalContext.current
+    var resolvedFormat by remember { mutableStateOf("24h") }
+
+    LaunchedEffect(context) {
+        runCatching {
+            val prefs = context.settingsDataStore.data.first()
+            val saved = prefs.asMap().entries
+                .firstOrNull { (key, _) -> key.name.endsWith("_clock_format") }
+                ?.value as? String
+            resolvedFormat = saved ?: "24h"
+        }
+    }
+
+    return resolvedFormat
+}
+
+private fun formatPlayerClockTime(timestampMs: Long, clockFormat: String): String {
+    val pattern = when (clockFormat) {
+        "12h" -> "h:mm a"
+        else -> "HH:mm"
+    }
+    val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault())
+    return sdf.format(java.util.Date(timestampMs))
 }
 
 private fun handleSubtitleMenuKey(

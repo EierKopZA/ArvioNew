@@ -94,6 +94,7 @@ class TvViewModel @Inject constructor(
     private var epgRefreshJob: Job? = null
     private var warmVodJob: Job? = null
     private var pendingForcedReload: Boolean = false
+    private var periodicEpgJob: Job? = null
 
     init {
         observeConfigAndFavorites()
@@ -121,13 +122,14 @@ class TvViewModel @Inject constructor(
                 // When navigating from Home, EPG was likely just loaded — no need to re-fetch.
                 val epgAgeMs = iptvRepository.cachedEpgAgeMs()
                 val epgIsRecent = epgAgeMs < 120_000L
+                val epgCoverage = epgCoverageRatio(cached)
                 if (needsChannelReload) {
                     // Need to reload channels — show loading only if we have no channels
                     refresh(force = true, showLoading = cached.channels.isEmpty(), forceEpg = true)
-                } else if (!hasAnyEpgData(cached) && hasPotentialEpg) {
-                    // Have channels but no EPG — refresh EPG silently in background
-                    // Never show loading spinner since channels are already displayed
-                    refresh(force = false, showLoading = false, forceEpg = true)
+                } else if ((epgCoverage < 0.85f) && hasPotentialEpg) {
+                    // Have channels but no/partial EPG — do an up-front refresh so the
+                    // page opens with a complete guide, not a partially-populated one.
+                    refresh(force = false, showLoading = true, forceEpg = true)
                 } else if (iptvRepository.isSnapshotStale(cached)) {
                     // Snapshot is stale — refresh silently
                     refresh(force = false, showLoading = false, forceEpg = !epgIsRecent)
@@ -137,6 +139,7 @@ class TvViewModel @Inject constructor(
             } else {
                 refresh(force = false, showLoading = true, forceEpg = true)
             }
+            startPeriodicEpgRefresh()
         }
     }
 
@@ -268,7 +271,7 @@ class TvViewModel @Inject constructor(
         val config = _uiState.value.config
         val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
         if (!hasPotentialEpg) return
-        if (!forceRefresh && (snapshot.channels.isEmpty() || hasAnyEpgData(snapshot))) return
+        if (!forceRefresh && (snapshot.channels.isEmpty() || epgCoverageRatio(snapshot) >= 0.85f)) return
         if (epgRefreshJob?.isActive == true) return
 
         epgRefreshJob = viewModelScope.launch {
@@ -317,6 +320,28 @@ class TvViewModel @Inject constructor(
         if (snapshot.nowNext.isEmpty()) return false
         return snapshot.nowNext.values.any { item ->
             item.now != null || item.next != null || item.later != null || item.upcoming.isNotEmpty()
+        }
+    }
+
+    private fun epgCoverageRatio(snapshot: IptvSnapshot): Float {
+        if (snapshot.channels.isEmpty()) return 0f
+        val covered = snapshot.channels.count { ch ->
+            val item = snapshot.nowNext[ch.id]
+            item != null && (item.now != null || item.next != null || item.later != null || item.upcoming.isNotEmpty())
+        }
+        return covered.toFloat() / snapshot.channels.size.toFloat()
+    }
+
+    private fun startPeriodicEpgRefresh() {
+        if (periodicEpgJob?.isActive == true) return
+        periodicEpgJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(5 * 60 * 1000L)
+                val state = _uiState.value
+                if (state.isConfigured && state.snapshot.channels.isNotEmpty()) {
+                    refresh(force = false, showLoading = false, forceEpg = true)
+                }
+            }
         }
     }
 

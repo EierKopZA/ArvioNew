@@ -1,5 +1,6 @@
 package com.arflix.tv.di
 
+import android.content.Context
 import com.arflix.tv.data.api.AniSkipApi
 import com.arflix.tv.data.api.ArmApi
 import com.arflix.tv.data.api.IntroDbApi
@@ -11,6 +12,7 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.util.Constants
 import dagger.Module
 import dagger.Provides
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
@@ -148,4 +150,7 @@ object AppModule {
     fun provideJikanApi(@Named("jikan") retrofit: Retrofit): com.arflix.tv.data.api.JikanApi {
         return retrofit.create(com.arflix.tv.data.api.JikanApi::class.java)
     }
+
+    // CloudstreamProviderRuntime is @Singleton @Inject — Hilt constructs it
+    // directly, no @Provides needed.
 }

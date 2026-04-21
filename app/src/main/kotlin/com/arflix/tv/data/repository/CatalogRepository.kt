@@ -9,6 +9,9 @@ import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonCatalog
 import com.arflix.tv.data.model.AddonType
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogKind
+import com.arflix.tv.data.model.CollectionGroupKind
+import com.arflix.tv.data.model.CollectionSourceConfig
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.CatalogValidationResult
 import com.arflix.tv.data.model.Category
@@ -733,6 +736,28 @@ class CatalogRepository @Inject constructor(
                 val addonCatalogType = asTrimmedString(row["addonCatalogType"])
                 val addonCatalogId = asTrimmedString(row["addonCatalogId"])
                 val addonName = asTrimmedString(row["addonName"])
+                val kind = parseCatalogKindCompat(asTrimmedString(row["kind"]))
+                val collectionGroup = parseCollectionGroupCompat(asTrimmedString(row["collectionGroup"]))
+                val collectionDescription = asTrimmedString(row["collectionDescription"])
+                val collectionCoverImageUrl = asTrimmedString(row["collectionCoverImageUrl"])
+                val collectionFocusGifUrl = asTrimmedString(row["collectionFocusGifUrl"])
+                val collectionHeroImageUrl = asTrimmedString(row["collectionHeroImageUrl"])
+                val collectionHeroGifUrl = asTrimmedString(row["collectionHeroGifUrl"])
+                val collectionHeroVideoUrl = asTrimmedString(row["collectionHeroVideoUrl"])
+                val collectionSources = runCatching {
+                    val jsonValue = gson.toJson(row["collectionSources"])
+                    gson.fromJson<List<CollectionSourceConfig>>(
+                        jsonValue,
+                        object : TypeToken<List<CollectionSourceConfig>>() {}.type
+                    ) ?: emptyList()
+                }.getOrDefault(emptyList())
+                val requiredAddonUrls = runCatching {
+                    val jsonValue = gson.toJson(row["requiredAddonUrls"])
+                    gson.fromJson<List<String>>(
+                        jsonValue,
+                        object : TypeToken<List<String>>() {}.type
+                    )?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                }.getOrDefault(emptyList())
                 val sourceTypeRaw = (row["sourceType"] as? String)?.trim().orEmpty()
                 val sourceType = parseSourceTypeCompat(sourceTypeRaw, sourceUrl, sourceRef)
                 val isPreinstalledRaw = (row["isPreinstalled"] as? Boolean) ?: false
@@ -753,7 +778,17 @@ class CatalogRepository @Inject constructor(
                         addonId = addonId,
                         addonCatalogType = addonCatalogType,
                         addonCatalogId = addonCatalogId,
-                        addonName = addonName
+                        addonName = addonName,
+                        kind = kind,
+                        collectionGroup = collectionGroup,
+                        collectionDescription = collectionDescription,
+                        collectionCoverImageUrl = collectionCoverImageUrl,
+                        collectionFocusGifUrl = collectionFocusGifUrl,
+                        collectionHeroImageUrl = collectionHeroImageUrl,
+                        collectionHeroGifUrl = collectionHeroGifUrl,
+                        collectionHeroVideoUrl = collectionHeroVideoUrl,
+                        collectionSources = collectionSources,
+                        requiredAddonUrls = requiredAddonUrls
                     )
                 )
             }
@@ -777,7 +812,9 @@ class CatalogRepository @Inject constructor(
             sourceUrl = normalizedUrl,
             sourceRef = normalizedRef
         )
+        val normalizedKind = if (config.collectionSources.isNotEmpty()) CatalogKind.COLLECTION else config.kind
         val normalizedPreinstalled = when {
+            normalizedKind == CatalogKind.COLLECTION -> config.isPreinstalled
             normalizedUrl != null -> false
             inferredType != CatalogSourceType.PREINSTALLED -> false
             else -> config.isPreinstalled
@@ -790,8 +827,34 @@ class CatalogRepository @Inject constructor(
             addonId = if (inferredType == CatalogSourceType.ADDON) normalizedAddonId else null,
             addonCatalogType = if (inferredType == CatalogSourceType.ADDON) normalizedAddonType else null,
             addonCatalogId = if (inferredType == CatalogSourceType.ADDON) normalizedAddonCatalogId else null,
-            addonName = if (inferredType == CatalogSourceType.ADDON) normalizedAddonName else null
+            addonName = if (inferredType == CatalogSourceType.ADDON) normalizedAddonName else null,
+            kind = normalizedKind,
+            collectionDescription = config.collectionDescription?.trim().takeUnless { it.isNullOrBlank() },
+            collectionCoverImageUrl = config.collectionCoverImageUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionFocusGifUrl = config.collectionFocusGifUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionHeroImageUrl = config.collectionHeroImageUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionHeroGifUrl = config.collectionHeroGifUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionHeroVideoUrl = config.collectionHeroVideoUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionSources = config.collectionSources,
+            requiredAddonUrls = config.requiredAddonUrls.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         )
+    }
+
+    private fun parseCatalogKindCompat(raw: String?): CatalogKind {
+        return when (raw?.trim()?.uppercase()) {
+            CatalogKind.COLLECTION.name -> CatalogKind.COLLECTION
+            else -> CatalogKind.STANDARD
+        }
+    }
+
+    private fun parseCollectionGroupCompat(raw: String?): CollectionGroupKind? {
+        return when (raw?.trim()?.uppercase()) {
+            CollectionGroupKind.SERVICE.name -> CollectionGroupKind.SERVICE
+            CollectionGroupKind.GENRE.name -> CollectionGroupKind.GENRE
+            CollectionGroupKind.DIRECTOR.name -> CollectionGroupKind.DIRECTOR
+            CollectionGroupKind.FRANCHISE.name -> CollectionGroupKind.FRANCHISE
+            else -> null
+        }
     }
 
     private fun parseSourceTypeCompat(

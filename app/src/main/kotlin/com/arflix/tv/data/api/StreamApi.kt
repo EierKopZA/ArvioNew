@@ -165,7 +165,8 @@ data class StremioMetaPreview(
     val type: String? = null,
     val name: String? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
-    @SerializedName("tmdb_id") val tmdbId: String? = null
+    @SerializedName("tmdb_id") val tmdbId: String? = null,
+    @SerializedName("moviedb_id") val moviedbId: String? = null
 )
 
 data class StremioMetaResponse(
