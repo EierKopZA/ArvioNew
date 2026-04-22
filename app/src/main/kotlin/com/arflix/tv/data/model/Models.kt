@@ -37,6 +37,9 @@ data class MediaItem(
     val revenue: Long? = null,
     // TV show status
     val status: String? = null, // "Returning Series", "Ended", "Canceled"
+    val collectionGroup: CollectionGroupKind? = null,
+    val collectionTileShape: CollectionTileShape? = null,
+    val collectionHideTitle: Boolean = false,
     // Character name (for person filmography / known for)
     val character: String = "",
     // Popularity score from TMDB (higher = more mainstream content)

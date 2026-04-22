@@ -290,6 +290,7 @@ fun SettingsScreen(
 
     val focusRequester = remember { FocusRequester() }
     val scrollState = rememberScrollState()
+    val sectionScrollState = rememberScrollState()
     val focusTracker = remember { SettingsFocusTracker() }
     val openSubtitlePicker = {
         viewModel.refreshSubtitleOptions()
@@ -369,6 +370,18 @@ fun SettingsScreen(
         focusTracker.clear()
         if (scrollState.value != 0) {
             scrollState.scrollTo(0)
+        }
+    }
+
+    LaunchedEffect(sectionIndex, activeZone, sections.size) {
+        if (isTouchDevice || activeZone != Zone.SECTION) return@LaunchedEffect
+        val maxScroll = sectionScrollState.maxValue
+        if (maxScroll <= 0) return@LaunchedEffect
+        val maxIndex = sections.lastIndex.coerceAtLeast(1)
+        val ratio = sectionIndex.coerceIn(0, maxIndex).toFloat() / maxIndex.toFloat()
+        val targetScroll = (maxScroll * ratio).toInt().coerceIn(0, maxScroll)
+        if (abs(sectionScrollState.value - targetScroll) > 24) {
+            sectionScrollState.animateScrollTo(targetScroll)
         }
     }
 
@@ -1017,43 +1030,50 @@ fun SettingsScreen(
                             .padding(start = 16.dp)
                             .padding(bottom = 24.dp)
                     )
-                    
-                    sections.forEachIndexed { index, section ->
-                        SettingsSectionItem(
-                            icon = when (section) {
-                                "general" -> Icons.Default.Settings
-                                "iptv" -> Icons.Default.LiveTv
-                                "catalogs" -> Icons.Default.Widgets
-                                "stremio" -> Icons.Default.Widgets
-                                "cloudstream" -> Icons.Default.Cloud
-                                "accounts" -> Icons.Default.Person
-                                else -> Icons.Default.Settings
-                            },
-                            // Display name — internal route keys ("stremio" etc.) are
-                            // kept for stability of conditionals, but user-visible labels
-                            // follow product naming.
-                            title = when (section) {
-                                "general" -> "General"
-                                "iptv" -> "IPTV"
-                                "catalogs" -> "Catalogs"
-                                "stremio" -> "Addons"
-                                "cloudstream" -> "Cloudstream"
-                                "accounts" -> "Account"
-                                else -> section.replaceFirstChar { it.uppercase() }
-                            },
-                            isSelected = sectionIndex == index,
-                            isFocused = activeZone == Zone.SECTION && sectionIndex == index,
-                            onClick = {
-                                sectionIndex = index
-                                contentFocusIndex = 0
-                                activeZone = Zone.SECTION
-                            }
-                        )
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(sectionScrollState)
+                    ) {
+                        sections.forEachIndexed { index, section ->
+                            SettingsSectionItem(
+                                icon = when (section) {
+                                    "general" -> Icons.Default.Settings
+                                    "iptv" -> Icons.Default.LiveTv
+                                    "catalogs" -> Icons.Default.Widgets
+                                    "stremio" -> Icons.Default.Widgets
+                                    "cloudstream" -> Icons.Default.Cloud
+                                    "accounts" -> Icons.Default.Person
+                                    else -> Icons.Default.Settings
+                                },
+                                // Display name — internal route keys ("stremio" etc.) are
+                                // kept for stability of conditionals, but user-visible labels
+                                // follow product naming.
+                                title = when (section) {
+                                    "general" -> "General"
+                                    "iptv" -> "IPTV"
+                                    "catalogs" -> "Catalogs"
+                                    "stremio" -> "Addons"
+                                    "cloudstream" -> "Cloudstream"
+                                    "accounts" -> "Account"
+                                    else -> section.replaceFirstChar { it.uppercase() }
+                                },
+                                isSelected = sectionIndex == index,
+                                isFocused = activeZone == Zone.SECTION && sectionIndex == index,
+                                onClick = {
+                                    sectionIndex = index
+                                    contentFocusIndex = 0
+                                    activeZone = Zone.SECTION
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                     }
-                    
-                    Spacer(modifier = Modifier.weight(1f))
+
+                    Spacer(modifier = Modifier.height(16.dp))
                     
                     Text(
                         text = "ARVIO V${BuildConfig.VERSION_NAME}",
@@ -3122,9 +3142,17 @@ private fun CatalogsSettings(
             val rowFocusIndex = index + 1
             val isRowFocused = focusedIndex == rowFocusIndex
             val title = if (catalog.isPreinstalled) {
-                if (catalog.kind == CatalogKind.COLLECTION) "${catalog.title} (Built-in Collection)" else "${catalog.title} (Built-in)"
+                when (catalog.kind) {
+                    CatalogKind.COLLECTION -> "${catalog.title} (Built-in Collection)"
+                    CatalogKind.COLLECTION_RAIL -> "${catalog.title} (Built-in Rail)"
+                    else -> "${catalog.title} (Built-in)"
+                }
             } else catalog.title
             val subtitle = when {
+                catalog.kind == CatalogKind.COLLECTION_RAIL -> {
+                    val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Collection"
+                    "$group rail"
+                }
                 catalog.kind == CatalogKind.COLLECTION -> {
                     val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Collection"
                     "$group collection"

@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -43,6 +44,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
@@ -71,6 +73,7 @@ fun SearchOverlay(
     var debounced by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<EnrichedChannel>>(emptyList()) }
     val focusRequester = remember { FocusRequester() }
+    val firstResultFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
     // Debounce input for 150ms per spec §7.
@@ -145,6 +148,9 @@ fun SearchOverlay(
                     onValueChange = { query = it },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = { runCatching { firstResultFocus.requestFocus() } },
+                    ),
                     cursorBrush = SolidColor(LiveColors.Accent),
                     textStyle = TextStyle(
                         color = LiveColors.Fg,
@@ -153,6 +159,17 @@ fun SearchOverlay(
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(focusRequester)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown &&
+                                ev.key == Key.DirectionDown &&
+                                results.isNotEmpty()
+                            ) {
+                                runCatching { firstResultFocus.requestFocus() }
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         .onKeyEvent { ev ->
                             if (ev.type == KeyEventType.KeyDown && ev.key == Key.Back) {
                                 onDismiss(); true
@@ -184,7 +201,19 @@ fun SearchOverlay(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 items(results, key = { it.id }) { ch ->
-                    SearchResultRow(channel = ch, onPick = onPick)
+                    val focusMod = if (results.isNotEmpty() && ch.id == results.first().id) {
+                        Modifier.focusRequester(firstResultFocus)
+                    } else Modifier
+                    SearchResultRow(
+                        channel = ch,
+                        onPick = onPick,
+                        onMoveUp = if (results.isNotEmpty() && ch.id == results.first().id) {
+                            { runCatching { focusRequester.requestFocus() } }
+                        } else {
+                            null
+                        },
+                        modifier = focusMod,
+                    )
                 }
             }
         }
@@ -193,21 +222,45 @@ fun SearchOverlay(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SearchResultRow(channel: EnrichedChannel, onPick: (EnrichedChannel) -> Unit) {
+private fun SearchResultRow(
+    channel: EnrichedChannel,
+    onPick: (EnrichedChannel) -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
     var focused by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) LiveColors.Panel else Color.Transparent)
+            .border(
+                width = if (focused) 3.dp else 0.dp,
+                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .onFocusChanged { focused = it.hasFocus }
             .focusable()
-            .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { ev ->
-                if (ev.type == KeyEventType.KeyDown &&
-                    (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
-                    onPick(channel); true
-                } else false
+                if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (ev.key) {
+                    Key.DirectionCenter, Key.Enter -> {
+                        onPick(channel)
+                        true
+                    }
+
+                    Key.DirectionUp -> {
+                        if (onMoveUp != null) {
+                            onMoveUp()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+
+                    else -> false
+                }
             }
             .pointerInput(channel.id) {
                 detectTapGestures(onTap = { onPick(channel) })

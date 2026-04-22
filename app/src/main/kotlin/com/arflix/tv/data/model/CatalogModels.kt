@@ -11,14 +11,22 @@ enum class CatalogSourceType {
 
 enum class CatalogKind {
     STANDARD,
-    COLLECTION
+    COLLECTION,
+    COLLECTION_RAIL
 }
 
 enum class CollectionGroupKind {
+    FEATURED,
     SERVICE,
     GENRE,
-    DIRECTOR,
-    FRANCHISE
+    DECADE,
+    FRANCHISE,
+    NETWORK
+}
+
+enum class CollectionTileShape {
+    LANDSCAPE,
+    POSTER
 }
 
 enum class CollectionSourceKind {
@@ -88,6 +96,8 @@ data class CatalogConfig(
     val collectionHeroGifUrl: String? = null,
     val collectionHeroVideoUrl: String? = null,
     val collectionClearLogoUrl: String? = null,
+    val collectionTileShape: CollectionTileShape = CollectionTileShape.LANDSCAPE,
+    val collectionHideTitle: Boolean = false,
     val collectionSources: List<CollectionSourceConfig> = emptyList(),
     val requiredAddonUrls: List<String> = emptyList()
 ) : Serializable

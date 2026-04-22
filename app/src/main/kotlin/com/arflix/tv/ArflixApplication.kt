@@ -27,6 +27,8 @@ import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.CrashlyticsProvider
+import com.arflix.tv.util.DeviceType
+import com.arflix.tv.util.detectDeviceType
 import com.arflix.tv.worker.TraktSyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -115,30 +117,23 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     }
 
     override fun newImageLoader(): ImageLoader {
+        val isTvDevice = detectDeviceType(this) == DeviceType.TV
         return ImageLoader.Builder(this)
             // Use the dedicated Coil HTTP client instead of the main API client.
             // Avoids logging interceptor overhead and connection pool contention.
             .okHttpClient(OkHttpProvider.coilClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    // Bumped from 15% to 20% to reduce cache thrashing on the home
-                    // screen where 10+ cards are visible simultaneously.
-                    .maxSizePercent(0.20)
+                    .maxSizePercent(if (isTvDevice) 0.08 else 0.14)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    // Bumped from 48 MB to 128 MB to hold more original-quality
-                    // backdrops across sessions. Original TMDB backdrops are 1-5 MB
-                    // each; 128 MB caches 25-128 unique backdrops, covering several
-                    // home screen visits worth of content. This means repeat visits
-                    // load entirely from disk with no network, keeping original
-                    // quality AND instant load speed.
-                    .maxSizeBytes(128L * 1024L * 1024L)
+                    .maxSizeBytes(if (isTvDevice) 64L * 1024L * 1024L else 96L * 1024L * 1024L)
                     .build()
             }
-            .crossfade(200)
+            .crossfade(false)
             .respectCacheHeaders(false)
             .allowRgb565(true)
             .bitmapConfig(Bitmap.Config.RGB_565)

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,6 +89,13 @@ fun CategorySidebar(
         label = "sidebar-width",
     )
     var expandedCountry by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(selectedId, tree) {
+        val countryId = selectedCountryGroupId(selectedId, tree)
+        if (countryId != null) {
+            expandedCountry = countryId
+        }
+    }
 
     Column(
         modifier = modifier
@@ -369,6 +377,13 @@ private fun SidebarRow(
         }
     }
 }
+
+private fun selectedCountryGroupId(
+    selectedId: String,
+    tree: LiveCategoryTree,
+): String? = tree.countries.categories.firstOrNull { country ->
+    country.id == selectedId || country.children.any { child -> child.id == selectedId }
+}?.id
 
 private fun iconFor(cat: LiveCategory): ImageVector? = when (cat.iconToken) {
     CategoryIcon.Favorite -> Icons.Filled.Star

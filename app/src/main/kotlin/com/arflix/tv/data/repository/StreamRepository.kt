@@ -376,6 +376,32 @@ class StreamRepository @Inject constructor(
         }
     }
 
+    suspend fun removeCustomAddonsByUrl(urls: List<String>): Boolean = withContext(Dispatchers.IO) {
+        val normalizedUrls = urls
+            .mapNotNull { url ->
+                runCatching { resolveAddonInstallUrl(url) }
+                    .getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+            }
+            .distinct()
+            .toSet()
+        if (normalizedUrls.isEmpty()) return@withContext false
+
+        val current = installedAddons.first()
+        val removableIds = current
+            .filter { addon ->
+                val addonUrl = addon.url ?: return@filter false
+                runCatching { normalizeAddonInputUrl(addonUrl) }.getOrNull() in normalizedUrls
+            }
+            .map { it.id }
+            .toSet()
+        if (removableIds.isEmpty()) return@withContext false
+
+        val retained = current.filterNot { it.id in removableIds }
+        saveAddons(retained)
+        true
+    }
+
     suspend fun findInstalledAddonIdForCatalog(
         catalogType: String,
         catalogId: String,
@@ -1003,16 +1029,16 @@ class StreamRepository @Inject constructor(
 
     // Stream source requests — generous timeouts to accommodate slow wifi and
     // debrid-backed addons (Torrentio, MediaFusion, etc.) that resolve remotely.
-    private val ADDON_TIMEOUT_MS = 15_000L
+    private val ADDON_TIMEOUT_MS = 10_000L
     // Subtitles should not block playback but need enough time on slow connections.
     private val SUBTITLE_TIMEOUT_MS = 6_000L
     // If addons return nothing, allow Xtream VOD lookup to recover playback.
     private val VOD_LOOKUP_TIMEOUT_MS = 6_000L
     // If addons already returned streams, keep VOD lookup shorter to avoid UI delay.
     private val VOD_APPEND_TIMEOUT_MS = 3_000L
-    private val STREAM_RESULT_CACHE_TTL_MS = 120_000L
-    private val STREAM_RESULT_CACHE_HTTP_TTL_MS = 30_000L
-    private val STREAM_RESULT_CACHE_HTTP_EPHEMERAL_TTL_MS = 10_000L
+    private val STREAM_RESULT_CACHE_TTL_MS = 10 * 60_000L
+    private val STREAM_RESULT_CACHE_HTTP_TTL_MS = 90_000L
+    private val STREAM_RESULT_CACHE_HTTP_EPHEMERAL_TTL_MS = 30_000L
 
     private fun streamCacheKey(
         profileId: String,
@@ -1374,13 +1400,28 @@ class StreamRepository @Inject constructor(
                 imdbId = imdbId
             )
             if (!forceRefresh) {
+                var staleCache: CachedStreamResult? = null
                 synchronized(streamResultCache) {
                     val cached = streamResultCache[cacheKey]
-                    if (cached != null && isStreamCacheFresh(cached)) {
-                        trySend(ProgressiveStreamResult(cached.result.streams, cached.result.subtitles, 1, 1, true))
-                        close()
-                        return@launch
+                    if (cached != null) {
+                        if (isStreamCacheFresh(cached)) {
+                            trySend(ProgressiveStreamResult(cached.result.streams, cached.result.subtitles, 1, 1, true))
+                            close()
+                            return@launch
+                        }
+                        staleCache = cached
                     }
+                }
+                staleCache?.let { cached ->
+                    trySend(
+                        ProgressiveStreamResult(
+                            streams = cached.result.streams,
+                            subtitles = cached.result.subtitles,
+                            completedAddons = 0,
+                            totalAddons = 1,
+                            isFinal = false
+                        )
+                    )
                 }
             }
 
@@ -1390,6 +1431,14 @@ class StreamRepository @Inject constructor(
                     TAG,
                     "[StreamFetch][Movie] no enabled streaming addons imdbId=$imdbId"
                 )
+                if (!forceRefresh) {
+                    val cached = synchronized(streamResultCache) { streamResultCache[cacheKey] }
+                    if (cached != null) {
+                        trySend(ProgressiveStreamResult(cached.result.streams, cached.result.subtitles, 1, 1, true))
+                        close()
+                        return@launch
+                    }
+                }
                 trySend(ProgressiveStreamResult(emptyList(), emptyList(), 0, 0, true))
                 close()
                 return@launch
@@ -1674,13 +1723,28 @@ class StreamRepository @Inject constructor(
                 episode = episode
             )
             if (!forceRefresh) {
+                var staleCache: CachedStreamResult? = null
                 synchronized(streamResultCache) {
                     val cached = streamResultCache[cacheKey]
-                    if (cached != null && isStreamCacheFresh(cached)) {
-                        trySend(ProgressiveStreamResult(cached.result.streams, cached.result.subtitles, 1, 1, true))
-                        close()
-                        return@launch
+                    if (cached != null) {
+                        if (isStreamCacheFresh(cached)) {
+                            trySend(ProgressiveStreamResult(cached.result.streams, cached.result.subtitles, 1, 1, true))
+                            close()
+                            return@launch
+                        }
+                        staleCache = cached
                     }
+                }
+                staleCache?.let { cached ->
+                    trySend(
+                        ProgressiveStreamResult(
+                            streams = cached.result.streams,
+                            subtitles = cached.result.subtitles,
+                            completedAddons = 0,
+                            totalAddons = 1,
+                            isFinal = false
+                        )
+                    )
                 }
             }
 
@@ -1690,6 +1754,14 @@ class StreamRepository @Inject constructor(
                     TAG,
                     "[StreamFetch][Episode] no enabled streaming addons imdbId=$imdbId season=$season episode=$episode"
                 )
+                if (!forceRefresh) {
+                    val cached = synchronized(streamResultCache) { streamResultCache[cacheKey] }
+                    if (cached != null) {
+                        trySend(ProgressiveStreamResult(cached.result.streams, cached.result.subtitles, 1, 1, true))
+                        close()
+                        return@launch
+                    }
+                }
                 trySend(ProgressiveStreamResult(emptyList(), emptyList(), 0, 0, true))
                 close()
                 return@launch

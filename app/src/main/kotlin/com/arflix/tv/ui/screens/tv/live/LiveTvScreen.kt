@@ -28,7 +28,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -68,7 +70,11 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarHeight
 import com.arflix.tv.ui.components.SidebarItem
+import com.arflix.tv.ui.components.topBarFocusedItem
+import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.ui.components.topBarSelectedIndex
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -76,6 +82,12 @@ import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+
+private enum class LiveTvFocusZone {
+    TOPBAR,
+    SIDEBAR,
+    EPG,
+}
 
 /**
  * Live TV screen — Arvio spec §1. Three focus regions: Sidebar ↔ MiniPlayer ↔ EPG.
@@ -99,7 +111,14 @@ fun LiveTvScreen(
     // the instant the user backs out — matters on a long-running IPTV flow
     // where the ViewModel pushes EPG refreshes every few seconds.
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val currentUiState by rememberUpdatedState(state)
     val context = LocalContext.current
+    val guideClockMillis by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            delay(30_000L)
+            value = System.currentTimeMillis()
+        }
+    }
 
     // Enrichment runs on a background dispatcher and is published through state
     // — avoids blocking recomposition for 10k+ playlists. Result is cached in
@@ -154,6 +173,12 @@ fun LiveTvScreen(
 
     // Selected category (persist across nav). Defaults to "all".
     var selectedCategoryId by rememberSaveable { mutableStateOf("all") }
+    val hasProfile = currentProfile != null
+    val maxTopBarIndex = topBarMaxIndex(hasProfile)
+    var focusZone by rememberSaveable { mutableStateOf(LiveTvFocusZone.EPG) }
+    var topBarFocusIndex by rememberSaveable {
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.TV, hasProfile).coerceIn(0, maxTopBarIndex))
+    }
 
     // Track recently-tuned channels (session-scope for now; persistence is a
     // follow-up — doing it here would mean touching IptvRepository).
@@ -197,6 +222,7 @@ fun LiveTvScreen(
 
     val sidebarExpanded = true
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
     var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
@@ -245,10 +271,10 @@ fun LiveTvScreen(
     }
     val exoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20_000, 120_000, 1_000, 3_000)
-            .setTargetBufferBytes(80 * 1024 * 1024)
+            .setBufferDurationsMs(4_000, 20_000, 750, 1_500)
+            .setTargetBufferBytes(24 * 1024 * 1024)
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(10_000, true)
+            .setBackBuffer(2_000, false)
             .build()
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
@@ -266,7 +292,15 @@ fun LiveTvScreen(
         val obs = LifecycleEventObserver { _, ev ->
             when (ev) {
                 Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> if (playingChannelId != null) exoPlayer.play()
+                Lifecycle.Event.ON_RESUME -> {
+                    if (playingChannelId != null) exoPlayer.play()
+                    if (currentUiState.isConfigured &&
+                        currentUiState.snapshot.channels.isNotEmpty() &&
+                        viewModel.iptvRepository.cachedEpgAgeMs() > 90_000L
+                    ) {
+                        viewModel.refresh(force = false, showLoading = false, forceEpg = true)
+                    }
+                }
                 else -> {}
             }
         }
@@ -317,6 +351,61 @@ fun LiveTvScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(LiveColors.Bg)
+            .onPreviewKeyEvent { event ->
+                if (searchOpen || isFullScreen || event.type != KeyEventType.KeyDown) {
+                    return@onPreviewKeyEvent false
+                }
+                when (focusZone) {
+                    LiveTvFocusZone.TOPBAR -> {
+                        when (event.key) {
+                            Key.DirectionLeft -> {
+                                if (topBarFocusIndex > 0) {
+                                    topBarFocusIndex = (topBarFocusIndex - 1).coerceIn(0, maxTopBarIndex)
+                                }
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                if (topBarFocusIndex < maxTopBarIndex) {
+                                    topBarFocusIndex = (topBarFocusIndex + 1).coerceIn(0, maxTopBarIndex)
+                                }
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                focusZone = LiveTvFocusZone.SIDEBAR
+                                runCatching { sidebarFocus.requestFocus() }
+                                true
+                            }
+                            Key.DirectionCenter, Key.Enter -> {
+                                if (hasProfile && topBarFocusIndex == 0) {
+                                    onSwitchProfile()
+                                } else {
+                                    when (topBarFocusedItem(topBarFocusIndex, hasProfile)) {
+                                        SidebarItem.SEARCH -> onNavigateToSearch()
+                                        SidebarItem.HOME -> onNavigateToHome()
+                                        SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                        SidebarItem.TV -> Unit
+                                        SidebarItem.SETTINGS -> onNavigateToSettings()
+                                        null -> Unit
+                                    }
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    LiveTvFocusZone.SIDEBAR -> {
+                        if (event.key == Key.DirectionUp) {
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                                .coerceIn(0, maxTopBarIndex)
+                            focusZone = LiveTvFocusZone.TOPBAR
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    LiveTvFocusZone.EPG -> false
+                }
+            }
     ) {
         // Content area starts below the translucent top bar so it doesn't get
         // overwritten.
@@ -346,10 +435,14 @@ fun LiveTvScreen(
             // row/search field 4 dp below the pills. The remaining top-bar
             // gradient tail is transparent enough to vanish over our near-
             // black Bg so the two regions read as one surface.
+            // Content sits under the top bar (82dp tall with a dark-to-
+            // transparent gradient). Starting at 0dp lets the grid/sidebar
+            // background bleed up into the transparent tail of the gradient
+            // so the two regions read as one surface instead of a hovering
+            // chip row. The content itself gets an internal top padding so
+            // nothing important renders under the opaque chips.
             Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 52.dp),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 CategorySidebar(
                     tree = enrichedState.value.tree,
@@ -357,15 +450,22 @@ fun LiveTvScreen(
                     expanded = sidebarExpanded,
                     onSelect = { id -> selectedCategoryId = id },
                     onOpenSearch = { searchOpen = true },
+                    onFocusEnter = { focusZone = LiveTvFocusZone.SIDEBAR },
                     modifier = Modifier
                         .fillMaxHeight()
+                        .padding(top = AppTopBarHeight)
                         .focusRequester(sidebarFocus),
                 )
 
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = AppTopBarHeight),
+                ) {
                     MiniPlayerRow(
                         exoPlayer = exoPlayer,
                         channel = playingChannel,
+                        clockTickMillis = guideClockMillis,
                         nowNext = playingChannelId?.let { state.snapshot.nowNext[it] },
                         onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
                         favoriteSet = favSet,
@@ -375,8 +475,10 @@ fun LiveTvScreen(
                     )
                     EpgGrid(
                         channels = filteredChannels,
+                        clockTickMillis = guideClockMillis,
                         nowNext = state.snapshot.nowNext,
                         selectedChannelId = playingChannelId,
+                        focusSelectedChannelSignal = focusSelectedChannelSignal,
                         onChannelSelect = { channel ->
                             // Two-step activation:
                             //  1st tap on a channel → tune it in the mini-
@@ -396,6 +498,11 @@ fun LiveTvScreen(
                         favorites = favSet,
                         modifier = Modifier
                             .fillMaxSize()
+                            .onFocusChanged {
+                                if (it.hasFocus) {
+                                    focusZone = LiveTvFocusZone.EPG
+                                }
+                            }
                             .focusRequester(epgFocus),
                     )
                 }
@@ -436,8 +543,8 @@ fun LiveTvScreen(
                     .onPreviewKeyEvent { ev ->
                         if (!isFullScreen || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.key) {
-                            Key.DirectionUp -> { zap(-1); hudPokeSignal++; true }
-                            Key.DirectionDown -> { zap(+1); hudPokeSignal++; true }
+                            Key.DirectionUp -> { zap(+1); hudPokeSignal++; true }
+                            Key.DirectionDown -> { zap(-1); hudPokeSignal++; true }
                             Key.DirectionCenter, Key.Enter -> { hudPokeSignal++; true }
                             Key.DirectionLeft, Key.DirectionRight -> { hudPokeSignal++; false }
                             else -> false
@@ -459,6 +566,7 @@ fun LiveTvScreen(
                         channel = playingChannel,
                         nowNext = playingChannelId?.let { state.snapshot.nowNext[it] },
                         pokeSignal = hudPokeSignal,
+                        modifier = Modifier,
                     )
                 }
             }
@@ -477,8 +585,8 @@ fun LiveTvScreen(
             Box(modifier = Modifier.graphicsLayer { alpha = 1f - fsProgress }) {
                 AppTopBar(
                     selectedItem = SidebarItem.TV,
-                    isFocused = false,
-                    focusedIndex = -1,
+                    isFocused = focusZone == LiveTvFocusZone.TOPBAR,
+                    focusedIndex = if (focusZone == LiveTvFocusZone.TOPBAR) topBarFocusIndex else -1,
                     profile = currentProfile,
                     profileCount = 1,
                 )
@@ -495,7 +603,9 @@ fun LiveTvScreen(
                 channels = enrichedState.value.all,
                 onDismiss = { searchOpen = false },
                 onPick = { channel ->
+                    selectedCategoryId = bestCategoryIdForChannel(channel, enrichedState.value.tree)
                     playingChannelId = channel.id
+                    focusSelectedChannelSignal += 1
                     searchOpen = false
                 },
             )

@@ -12,6 +12,7 @@ import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.CollectionSourceConfig
+import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.CatalogValidationResult
 import com.arflix.tv.data.model.Category
@@ -101,8 +102,10 @@ class CatalogRepository @Inject constructor(
     private suspend fun readCatalogsForActiveProfile(): List<CatalogConfig> {
         val profileId = activeProfileId()
         val prefs = context.settingsDataStore.data.first()
-        val primary = parseCatalogsJson(prefs[catalogsKey(profileId)]).distinctBy { it.id }
-        val resolved = readCatalogsFromPrefs(profileId, prefs)
+        val primary = sanitizeCollectionCatalogs(
+            parseCatalogsJson(prefs[catalogsKey(profileId)]).distinctBy { it.id }
+        )
+        val resolved = sanitizeCollectionCatalogs(readCatalogsFromPrefs(profileId, prefs))
         // One-time migration/sync for old keys and merged legacy custom entries.
         if (resolved.isNotEmpty() && resolved != primary) {
             saveCatalogs(resolved)
@@ -117,7 +120,17 @@ class CatalogRepository @Inject constructor(
     suspend fun getCatalogsForProfile(profileId: String): List<CatalogConfig> {
         val safeProfileId = profileId.trim().ifBlank { "default" }
         val prefs = context.settingsDataStore.data.first()
-        return readCatalogsFromPrefs(safeProfileId, prefs)
+        return sanitizeCollectionCatalogs(readCatalogsFromPrefs(safeProfileId, prefs))
+    }
+
+    private fun sanitizeCollectionCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
+        return catalogs.mapNotNull { config ->
+            if (!CollectionTemplateManifest.isValidCollectionConfig(config)) {
+                null
+            } else {
+                config
+            }
+        }
     }
 
     suspend fun getHiddenPreinstalledCatalogIdsForActiveProfile(): List<String> {
@@ -202,7 +215,12 @@ class CatalogRepository @Inject constructor(
         }
 
         val defaultIds = defaultPreinstalled.map { it.id }.toSet()
-        val existing = getCatalogs().map { cfg ->
+        val existing = getCatalogs().mapNotNull { cfg ->
+            if ((cfg.kind == CatalogKind.COLLECTION || cfg.kind == CatalogKind.COLLECTION_RAIL) &&
+                !defaultIds.contains(cfg.id)
+            ) {
+                return@mapNotNull null
+            }
             // Only treat as custom if it's NOT in the preinstalled defaults list
             val looksCustom = !defaultIds.contains(cfg.id) && (
                 cfg.id.startsWith("custom_") ||
@@ -263,7 +281,10 @@ class CatalogRepository @Inject constructor(
                     kept.add(insertAt, missing)
                 }
             }
-            kept
+            migrateLegacyCollectionBlockOrder(
+                current = kept,
+                desiredDefaults = effectiveDefaults
+            )
         }
 
         if (existing != merged) {
@@ -406,6 +427,47 @@ class CatalogRepository @Inject constructor(
         return digest.take(8).joinToString("") { b -> "%02x".format(b) }
     }
 
+    private fun migrateLegacyCollectionBlockOrder(
+        current: List<CatalogConfig>,
+        desiredDefaults: List<CatalogConfig>
+    ): List<CatalogConfig> {
+        val desiredCollectionIds = desiredDefaults
+            .filter { it.kind == CatalogKind.COLLECTION_RAIL || it.kind == CatalogKind.COLLECTION }
+            .map { it.id }
+            .toSet()
+        if (desiredCollectionIds.isEmpty()) return current
+
+        val currentFirstCollectionIndex = current.indexOfFirst { it.id in desiredCollectionIds }
+        val desiredFirstCollectionIndex = desiredDefaults.indexOfFirst { it.id in desiredCollectionIds }
+        if (currentFirstCollectionIndex < 0 || desiredFirstCollectionIndex < 0) return current
+
+        val trendingAnimeIndex = current.indexOfFirst { it.id == "trending_anime" }
+        val collectionsStillTrailing = currentFirstCollectionIndex > trendingAnimeIndex + 1 &&
+            current.filter { it.id in desiredCollectionIds }.map { it.id }.toSet() == desiredCollectionIds
+        if (!collectionsStillTrailing) return current
+
+        val currentById = current.associateBy { it.id }
+        val reorderedPreinstalled = desiredDefaults.mapNotNull { desired ->
+            val existing = currentById[desired.id] ?: return@mapNotNull desired
+            if (existing.title.isNotBlank() && existing.title != desired.title) {
+                desired.copy(title = existing.title)
+            } else {
+                desired
+            }
+        }
+
+        val nonPreinstalled = current.filterNot { it.isPreinstalled }
+        return reorderedPreinstalled + nonPreinstalled
+    }
+
+    private fun isVisibleCatalogInSettings(config: CatalogConfig): Boolean {
+        if (config.kind == CatalogKind.COLLECTION) return false
+        if (config.kind == CatalogKind.COLLECTION_RAIL) {
+            return CollectionTemplateManifest.isValidCollectionConfig(config)
+        }
+        return true
+    }
+
     suspend fun addCustomCatalog(rawUrl: String): Result<CatalogConfig> {
         val validation = validateCatalogUrl(rawUrl)
         if (!validation.isValid || validation.normalizedUrl == null || validation.sourceType == null) {
@@ -496,20 +558,32 @@ class CatalogRepository @Inject constructor(
 
     suspend fun moveCatalogUp(catalogId: String): Boolean {
         val current = getCatalogs().toMutableList()
-        val index = current.indexOfFirst { it.id == catalogId }
-        if (index <= 0) return false
-        val moved = current.removeAt(index)
-        current.add(index - 1, moved)
+        val visible = current.filter { isVisibleCatalogInSettings(it) }
+        val visibleIndex = visible.indexOfFirst { it.id == catalogId }
+        if (visibleIndex <= 0) return false
+        val currentIndex = current.indexOfFirst { it.id == catalogId }
+        val previousVisibleId = visible[visibleIndex - 1].id
+        val previousIndex = current.indexOfFirst { it.id == previousVisibleId }
+        if (currentIndex < 0 || previousIndex < 0) return false
+        val moved = current.removeAt(currentIndex)
+        val insertAt = if (currentIndex > previousIndex) previousIndex else previousIndex - 1
+        current.add(insertAt.coerceAtLeast(0), moved)
         saveCatalogs(current)
         return true
     }
 
     suspend fun moveCatalogDown(catalogId: String): Boolean {
         val current = getCatalogs().toMutableList()
-        val index = current.indexOfFirst { it.id == catalogId }
-        if (index < 0 || index >= current.lastIndex) return false
-        val moved = current.removeAt(index)
-        current.add(index + 1, moved)
+        val visible = current.filter { isVisibleCatalogInSettings(it) }
+        val visibleIndex = visible.indexOfFirst { it.id == catalogId }
+        if (visibleIndex < 0 || visibleIndex >= visible.lastIndex) return false
+        val currentIndex = current.indexOfFirst { it.id == catalogId }
+        val nextVisibleId = visible[visibleIndex + 1].id
+        val nextIndex = current.indexOfFirst { it.id == nextVisibleId }
+        if (currentIndex < 0 || nextIndex < 0) return false
+        val moved = current.removeAt(currentIndex)
+        val insertAt = if (currentIndex < nextIndex) nextIndex else nextIndex + 1
+        current.add(insertAt.coerceAtMost(current.size), moved)
         saveCatalogs(current)
         return true
     }
@@ -744,6 +818,8 @@ class CatalogRepository @Inject constructor(
                 val collectionHeroImageUrl = asTrimmedString(row["collectionHeroImageUrl"])
                 val collectionHeroGifUrl = asTrimmedString(row["collectionHeroGifUrl"])
                 val collectionHeroVideoUrl = asTrimmedString(row["collectionHeroVideoUrl"])
+                val collectionTileShape = parseCollectionTileShapeCompat(asTrimmedString(row["collectionTileShape"]))
+                val collectionHideTitle = (row["collectionHideTitle"] as? Boolean) ?: false
                 val collectionSources = runCatching {
                     val jsonValue = gson.toJson(row["collectionSources"])
                     gson.fromJson<List<CollectionSourceConfig>>(
@@ -787,6 +863,8 @@ class CatalogRepository @Inject constructor(
                         collectionHeroImageUrl = collectionHeroImageUrl,
                         collectionHeroGifUrl = collectionHeroGifUrl,
                         collectionHeroVideoUrl = collectionHeroVideoUrl,
+                        collectionTileShape = collectionTileShape,
+                        collectionHideTitle = collectionHideTitle,
                         collectionSources = collectionSources,
                         requiredAddonUrls = requiredAddonUrls
                     )
@@ -800,6 +878,9 @@ class CatalogRepository @Inject constructor(
         val normalizedUrl = config.sourceUrl?.trim().takeUnless { it.isNullOrBlank() }
         val normalizedRef = config.sourceRef?.trim().takeUnless { it.isNullOrBlank() }
         val sourceRefAddon = parseAddonSourceRef(normalizedRef)
+        val normalizedCollectionTileShape = runCatching {
+            CollectionTileShape.valueOf(config.collectionTileShape.name)
+        }.getOrDefault(CollectionTileShape.LANDSCAPE)
         val normalizedAddonId = config.addonId?.trim().takeUnless { it.isNullOrBlank() }
             ?: sourceRefAddon?.first
         val normalizedAddonType = normalizeAddonCatalogType(config.addonCatalogType)
@@ -812,9 +893,13 @@ class CatalogRepository @Inject constructor(
             sourceUrl = normalizedUrl,
             sourceRef = normalizedRef
         )
-        val normalizedKind = if (config.collectionSources.isNotEmpty()) CatalogKind.COLLECTION else config.kind
+        val normalizedKind = when {
+            config.kind == CatalogKind.COLLECTION_RAIL -> CatalogKind.COLLECTION_RAIL
+            config.collectionSources.isNotEmpty() -> CatalogKind.COLLECTION
+            else -> config.kind
+        }
         val normalizedPreinstalled = when {
-            normalizedKind == CatalogKind.COLLECTION -> config.isPreinstalled
+            normalizedKind == CatalogKind.COLLECTION || normalizedKind == CatalogKind.COLLECTION_RAIL -> config.isPreinstalled
             normalizedUrl != null -> false
             inferredType != CatalogSourceType.PREINSTALLED -> false
             else -> config.isPreinstalled
@@ -835,6 +920,8 @@ class CatalogRepository @Inject constructor(
             collectionHeroImageUrl = config.collectionHeroImageUrl?.trim().takeUnless { it.isNullOrBlank() },
             collectionHeroGifUrl = config.collectionHeroGifUrl?.trim().takeUnless { it.isNullOrBlank() },
             collectionHeroVideoUrl = config.collectionHeroVideoUrl?.trim().takeUnless { it.isNullOrBlank() },
+            collectionTileShape = normalizedCollectionTileShape,
+            collectionHideTitle = config.collectionHideTitle,
             collectionSources = config.collectionSources,
             requiredAddonUrls = config.requiredAddonUrls.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         )
@@ -843,17 +930,27 @@ class CatalogRepository @Inject constructor(
     private fun parseCatalogKindCompat(raw: String?): CatalogKind {
         return when (raw?.trim()?.uppercase()) {
             CatalogKind.COLLECTION.name -> CatalogKind.COLLECTION
+            CatalogKind.COLLECTION_RAIL.name -> CatalogKind.COLLECTION_RAIL
             else -> CatalogKind.STANDARD
         }
     }
 
     private fun parseCollectionGroupCompat(raw: String?): CollectionGroupKind? {
         return when (raw?.trim()?.uppercase()) {
+            CollectionGroupKind.FEATURED.name -> CollectionGroupKind.FEATURED
             CollectionGroupKind.SERVICE.name -> CollectionGroupKind.SERVICE
             CollectionGroupKind.GENRE.name -> CollectionGroupKind.GENRE
-            CollectionGroupKind.DIRECTOR.name -> CollectionGroupKind.DIRECTOR
+            CollectionGroupKind.DECADE.name -> CollectionGroupKind.DECADE
             CollectionGroupKind.FRANCHISE.name -> CollectionGroupKind.FRANCHISE
+            CollectionGroupKind.NETWORK.name -> CollectionGroupKind.NETWORK
             else -> null
+        }
+    }
+
+    private fun parseCollectionTileShapeCompat(raw: String?): CollectionTileShape {
+        return when (raw?.trim()?.uppercase()) {
+            CollectionTileShape.POSTER.name -> CollectionTileShape.POSTER
+            else -> CollectionTileShape.LANDSCAPE
         }
     }
 

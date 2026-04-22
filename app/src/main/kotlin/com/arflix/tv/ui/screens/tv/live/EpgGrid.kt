@@ -44,6 +44,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -61,7 +63,11 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+
+private const val EpgWindowMinutes = 24 * 60
+private const val EpgWindowSlotCount = EpgWindowMinutes / 30
 
 /**
  * EPG grid per spec §3.4.
@@ -73,8 +79,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun EpgGrid(
     channels: List<EnrichedChannel>,
+    clockTickMillis: Long,
     nowNext: Map<String, IptvNowNext>,
     selectedChannelId: String?,
+    focusSelectedChannelSignal: Int,
     onChannelSelect: (EnrichedChannel) -> Unit,
     onChannelFavoriteToggle: (String) -> Unit,
     favorites: Set<String>,
@@ -82,16 +90,17 @@ fun EpgGrid(
 ) {
     val density = LocalDensity.current
     val pxPerMin = LiveDims.EpgPxPerMinute
+    val selectedChannelFocusRequester = remember { FocusRequester() }
 
     // Window: now − 30 min → now + 2 h = 2.5 h total.
     // Past is limited to 30 min so most of the ruler is future programmes
     // (what you're about to watch), not what already aired.
     val windowStartMillis = remember { roundedWindowStart() }
     val windowEndMillis = remember(windowStartMillis) {
-        windowStartMillis + 150L * 60 * 1000 // 2h30m
+        windowStartMillis + EpgWindowMinutes * 60L * 1000L
     }
     // 5 half-hour slots across the window.
-    val slots = remember { buildHalfHourSlots(windowStartMillis, 5) }
+    val slots = remember(windowStartMillis) { buildHalfHourSlots(windowStartMillis, EpgWindowSlotCount) }
 
     // Shared horizontal scroll state between header and body rows.
     val hScroll = rememberScrollState()
@@ -103,17 +112,39 @@ fun EpgGrid(
     val channelListState = rememberLazyListState()
     val programListState = rememberLazyListState()
 
-    // One-way scroll sync: the program grid leads, the channel column
-    // mirrors it. A bidirectional setup caused a feedback loop and
-    // noticeable DPAD jank on long lists.
+    // Two-way scroll sync without feedback loop.
+    // A single leader token flips to whichever list registered a user
+    // scroll last; only the leader's snapshotFlow writes to the other.
+    // This survives focus-driven bringIntoView scrolls from either side.
+    var leader by remember { mutableStateOf(0) } // 0=none, 1=program, 2=channel
+    LaunchedEffect(programListState) {
+        snapshotFlow { programListState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { if (it) leader = 1 }
+    }
+    LaunchedEffect(channelListState) {
+        snapshotFlow { channelListState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { if (it) leader = 2 }
+    }
     LaunchedEffect(channelListState, programListState) {
         snapshotFlow { programListState.firstVisibleItemIndex to programListState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
             .collect { (idx, off) ->
+                if (leader != 1) return@collect
                 if (channelListState.firstVisibleItemIndex != idx ||
                     channelListState.firstVisibleItemScrollOffset != off
-                ) {
-                    channelListState.scrollToItem(idx, off)
-                }
+                ) channelListState.scrollToItem(idx, off)
+            }
+    }
+    LaunchedEffect(channelListState, programListState) {
+        snapshotFlow { channelListState.firstVisibleItemIndex to channelListState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (idx, off) ->
+                if (leader != 2) return@collect
+                if (programListState.firstVisibleItemIndex != idx ||
+                    programListState.firstVisibleItemScrollOffset != off
+                ) programListState.scrollToItem(idx, off)
             }
     }
 
@@ -123,10 +154,34 @@ fun EpgGrid(
     // visible and the rest of the viewport holds upcoming programmes.
     LaunchedEffect(Unit) {
         with(density) {
-            val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+            val nowOffsetMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
             val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 30.dp.toPx().toInt()
             hScroll.scrollTo(targetPx.coerceAtLeast(0))
         }
+    }
+
+    // Scroll the grid to the active channel whenever the selection changes
+    // from outside (e.g. search result picked). Uses a keyed LaunchedEffect
+    // on both selection and channel list identity so a late-arriving list
+    // still lands on the right row.
+    LaunchedEffect(selectedChannelId, channels) {
+        val id = selectedChannelId ?: return@LaunchedEffect
+        val idx = channels.indexOfFirst { it.id == id }
+        if (idx < 0) return@LaunchedEffect
+        leader = 0 // avoid triggering the two-way sync during the jump
+        programListState.scrollToItem(idx)
+        channelListState.scrollToItem(idx)
+    }
+
+    LaunchedEffect(focusSelectedChannelSignal, selectedChannelId, channels) {
+        if (focusSelectedChannelSignal == 0) return@LaunchedEffect
+        val id = selectedChannelId ?: return@LaunchedEffect
+        val idx = channels.indexOfFirst { it.id == id }
+        if (idx < 0) return@LaunchedEffect
+        leader = 0
+        programListState.scrollToItem(idx)
+        channelListState.scrollToItem(idx)
+        runCatching { selectedChannelFocusRequester.requestFocus() }
     }
 
     Column(
@@ -193,7 +248,7 @@ fun EpgGrid(
                     }
                 }
                 // Cyan "NOW hh:mm" pill hovering above the now-line inside the header.
-                val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+                val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
                 val nowOffset = (nowMin * pxPerMin).dp
                 Box(
                     modifier = Modifier
@@ -203,7 +258,7 @@ fun EpgGrid(
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                 ) {
                     Text(
-                        text = "NOW " + formatClock(System.currentTimeMillis()),
+                        text = "NOW " + formatClock(clockTickMillis),
                         style = LiveType.Badge.copy(color = LiveColors.Bg),
                     )
                 }
@@ -237,11 +292,17 @@ fun EpgGrid(
                         ChannelRow(
                             channel = ch,
                             isActive = ch.id == selectedChannelId,
+                            clockTickMillis = clockTickMillis,
                             nowNext = nowNext[ch.id],
                             isFavorite = ch.id in favorites,
                             stripe = idx % 2 == 1,
                             onClick = { onChannelSelect(ch) },
                             onFavoriteToggle = { onChannelFavoriteToggle(ch.id) },
+                            modifier = if (ch.id == selectedChannelId) {
+                                Modifier.focusRequester(selectedChannelFocusRequester)
+                            } else {
+                                Modifier
+                            },
                         )
                     }
                 }
@@ -280,7 +341,9 @@ fun EpgGrid(
                             ProgramsRow(
                                 channel = ch,
                                 programs = rowPrograms,
+                                clockTickMillis = clockTickMillis,
                                 windowStartMillis = windowStartMillis,
+                                totalWidth = LiveDims.EpgHalfHourWidth * slots.size,
                                 pxPerMin = pxPerMin,
                                 stripe = idx % 2 == 1,
                                 isActive = ch.id == selectedChannelId,
@@ -290,6 +353,7 @@ fun EpgGrid(
                     }
                     // NOW glow line across full body
                     NowLine(
+                        clockTickMillis = clockTickMillis,
                         windowStartMillis = windowStartMillis,
                         pxPerMin = pxPerMin,
                         hScrollOffsetPx = hScroll.value,
@@ -305,14 +369,15 @@ fun EpgGrid(
 private fun ProgramsRow(
     channel: EnrichedChannel,
     programs: List<IptvProgram>,
+    clockTickMillis: Long,
     windowStartMillis: Long,
+    totalWidth: Dp,
     pxPerMin: Int,
     stripe: Boolean,
     isActive: Boolean,
     onClick: () -> Unit,
 ) {
-    val totalWidth = LiveDims.EpgHalfHourWidth * 5
-    val nowMillis = System.currentTimeMillis()
+    val nowMillis = clockTickMillis
     Box(
         modifier = Modifier
             .width(totalWidth)
@@ -328,15 +393,14 @@ private fun ProgramsRow(
         if (programs.isNotEmpty()) {
             programs.forEach { p ->
                 val startMin = ((p.startUtcMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)
-                // 30-min floor → 150dp min block width, enough room to render
-                // LIVE badge + title + time without immediate ellipsis.
-                val durationMin = ((p.endUtcMillis - p.startUtcMillis) / 60_000L).toInt().coerceAtLeast(30)
+                val durationMin = ((p.endUtcMillis - p.startUtcMillis) / 60_000L).toInt().coerceAtLeast(1)
                 val offset = (startMin * pxPerMin).dp
                 val width = (durationMin * pxPerMin).dp
                 val isNow = nowMillis in p.startUtcMillis..p.endUtcMillis
                 val isPast = p.endUtcMillis < nowMillis
                 ProgramCell(
                     program = p,
+                    clockTickMillis = clockTickMillis,
                     width = width,
                     isNow = isNow,
                     isPast = isPast,
@@ -352,12 +416,13 @@ private fun ProgramsRow(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun NowLine(
+    clockTickMillis: Long,
     windowStartMillis: Long,
     pxPerMin: Int,
     hScrollOffsetPx: Int,
 ) {
     val density = LocalDensity.current
-    val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+    val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
     val xDp = with(density) { ((nowMin * pxPerMin).dp.toPx() - hScrollOffsetPx).toDp() }
     if (xDp < 0.dp) return
     Box(

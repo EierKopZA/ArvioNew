@@ -37,6 +37,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
+import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.ui.skin.ArvioFocusableSurface
@@ -128,6 +129,8 @@ fun MediaCard(
     val collectionFocusUrl = if (isCollectionTile) {
         item.backdrop?.takeIf { it.isNotBlank() && it != item.image }
     } else null
+    val showCollectionTitleOverlay = isCollectionTile && showTitle
+    val isGenreCollectionTile = item.collectionGroup == CollectionGroupKind.GENRE
     val rawImageUrl = if (visualFocused) {
         explicitFocusUrl ?: collectionFocusUrl ?: baseImageUrl
     } else {
@@ -242,6 +245,54 @@ fun MediaCard(
                     )
                 }
 
+                if (showCollectionTitleOverlay) {
+                    Box(
+                        modifier = Modifier
+                            .align(if (isGenreCollectionTile) Alignment.BottomStart else Alignment.TopStart)
+                            .padding(
+                                start = 12.dp,
+                                end = 12.dp,
+                                top = if (isGenreCollectionTile) 12.dp else 12.dp,
+                                bottom = if (isGenreCollectionTile) 14.dp else 12.dp
+                            )
+                            .clip(RoundedCornerShape(if (isGenreCollectionTile) 12.dp else 10.dp))
+                            .background(
+                                Color.Black.copy(alpha = if (visualFocused) {
+                                    if (isGenreCollectionTile) 0.72f else 0.62f
+                                } else {
+                                    if (isGenreCollectionTile) 0.58f else 0.52f
+                                })
+                            )
+                            .border(
+                                width = if (visualFocused) {
+                                    if (isGenreCollectionTile) 1.dp else 1.5.dp
+                                } else {
+                                    1.dp
+                                },
+                                color = Color.White.copy(alpha = if (visualFocused) 0.9f else 0.28f),
+                                shape = RoundedCornerShape(if (isGenreCollectionTile) 12.dp else 10.dp)
+                            )
+                            .padding(
+                                horizontal = if (isGenreCollectionTile) 12.dp else 10.dp,
+                                vertical = if (isGenreCollectionTile) 8.dp else 7.dp
+                            )
+                    ) {
+                        Text(
+                            text = item.title,
+                            style = ArvioSkin.typography.cardTitle.copy(
+                                fontSize = when {
+                                    isGenreCollectionTile && isLandscape -> 18.sp
+                                    isLandscape -> 15.sp
+                                    else -> 14.sp
+                                }
+                            ),
+                            color = Color.White.copy(alpha = 0.98f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
                 // Official logo/art overlay in bottom-left corner of landscape
                 // cards. Rendered in two layers so dark/black logos remain
                 // readable on dark card art: a white silhouette of the logo
@@ -252,19 +303,23 @@ fun MediaCard(
                 // clean cover — the branded image already carries the
                 // wordmark, so stacking a separate clearlogo double-stamps
                 // the identity. Suppress it here per the design spec.
-                if (isLandscape && logoRequest != null && !isCollectionTile) {
+                if (logoRequest != null && !isCollectionTile) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.52f)
-                            .height(48.dp)
-                            .padding(start = 10.dp, bottom = 18.dp)
+                            .align(if (isLandscape) Alignment.BottomStart else Alignment.BottomCenter)
+                            .fillMaxWidth(if (isLandscape) 0.52f else 0.74f)
+                            .height(if (isLandscape) 48.dp else 42.dp)
+                            .padding(
+                                start = if (isLandscape) 10.dp else 0.dp,
+                                end = if (isLandscape) 0.dp else 8.dp,
+                                bottom = if (isLandscape) 18.dp else 12.dp
+                            )
                     ) {
                         AsyncImage(
                             model = logoRequest,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
-                            alignment = Alignment.BottomStart,
+                            alignment = if (isLandscape) Alignment.BottomStart else Alignment.BottomCenter,
                             colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
                             modifier = Modifier
                                 .fillMaxSize()
@@ -278,7 +333,7 @@ fun MediaCard(
                             model = logoRequest,
                             contentDescription = "${item.title} logo",
                             contentScale = ContentScale.Fit,
-                            alignment = Alignment.BottomStart,
+                            alignment = if (isLandscape) Alignment.BottomStart else Alignment.BottomCenter,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -333,7 +388,7 @@ fun MediaCard(
             }
         }
 
-        if (showTitle) {
+        if (showTitle && !showCollectionTitleOverlay) {
             Spacer(modifier = Modifier.height(ArvioSkin.spacing.x2))
 
             Text(

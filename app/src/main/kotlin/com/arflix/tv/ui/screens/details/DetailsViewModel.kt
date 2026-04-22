@@ -287,21 +287,7 @@ class DetailsViewModel @Inject constructor(
                         mediaRepository.getMovieDetails(mediaId)
                     }
                 }
-                // Load supporting data in parallel
-                val logoDeferred = async { mediaRepository.getLogoUrl(mediaType, mediaId) }
-                val trailerDeferred = async { mediaRepository.getTrailerKey(mediaType, mediaId) }
-                val castDeferred = async { mediaRepository.getCast(mediaType, mediaId) }
-                val similarDeferred = async { mediaRepository.getSimilar(mediaType, mediaId) }
                 val watchlistDeferred = async { watchlistRepository.isInWatchlist(mediaType, mediaId) }
-                val reviewsDeferred = async { mediaRepository.getReviews(mediaType, mediaId) }
-                val streamingServicesDeferred = async {
-                    mediaRepository.getStreamingServices(
-                        mediaType = mediaType,
-                        mediaId = mediaId,
-                        preferredRegion = Locale.getDefault().country
-                    )
-                }
-
                 // Fetch real IMDB ID and TVDB ID from TMDB external_ids endpoint
                 val externalIdsDeferred = async { resolveExternalIds(mediaType, mediaId) }
                 val resumeDeferred = async { fetchResumeInfo(mediaId, mediaType, initialSeason, initialEpisode) }
@@ -424,30 +410,34 @@ class DetailsViewModel @Inject constructor(
                 }
 
                 launch {
-                    val logoUrl = runCatching { logoDeferred.await() }.getOrNull()
+                    delay(120L)
+                    val logoUrl = runCatching { mediaRepository.getLogoUrl(mediaType, mediaId) }.getOrNull()
                     if (logoUrl != null && logoUrl != _uiState.value.logoUrl) {
                         updateState { state -> state.copy(logoUrl = logoUrl) }
                     }
                 }
 
                 launch {
-                    val trailerKey = runCatching { trailerDeferred.await() }.getOrNull()
+                    delay(180L)
+                    val trailerKey = runCatching { mediaRepository.getTrailerKey(mediaType, mediaId) }.getOrNull()
                     if (trailerKey != null) {
                         updateState { state -> state.copy(trailerKey = trailerKey) }
                     }
                 }
 
                 launch {
-                    val cast = runCatching { castDeferred.await() }.getOrNull()
+                    delay(220L)
+                    val cast = runCatching { mediaRepository.getCast(mediaType, mediaId) }.getOrNull()
                     if (!cast.isNullOrEmpty()) {
                         updateState { state -> state.copy(cast = cast) }
                     }
                 }
 
                 launch {
-                    val similar = runCatching { similarDeferred.await() }.getOrNull()
+                    delay(320L)
+                    val similar = runCatching { mediaRepository.getSimilar(mediaType, mediaId) }.getOrNull()
                     if (!similar.isNullOrEmpty()) {
-                        val logos = similar.take(20).map { item ->
+                        val logos = similar.take(8).map { item ->
                             async {
                                 val key = "${item.mediaType}_${item.id}"
                                 val logo = runCatching {
@@ -466,14 +456,22 @@ class DetailsViewModel @Inject constructor(
                 }
 
                 launch {
-                    val reviews = runCatching { reviewsDeferred.await() }.getOrNull()
+                    delay(420L)
+                    val reviews = runCatching { mediaRepository.getReviews(mediaType, mediaId) }.getOrNull()
                     if (!reviews.isNullOrEmpty()) {
                         updateState { state -> state.copy(reviews = reviews) }
                     }
                 }
 
                 launch {
-                    val servicesResult = runCatching { streamingServicesDeferred.await() }.getOrNull()
+                    delay(260L)
+                    val servicesResult = runCatching {
+                        mediaRepository.getStreamingServices(
+                            mediaType = mediaType,
+                            mediaId = mediaId,
+                            preferredRegion = Locale.getDefault().country
+                        )
+                    }.getOrNull()
                     if (servicesResult != null) {
                         updateState { state ->
                             state.copy(

@@ -590,19 +590,31 @@ class CloudSyncRepository @Inject constructor(
         root.optJSONObject("localContinueWatchingByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
             val type = object : TypeToken<Map<String, List<ContinueWatchingItem>>>() {}.type
             val map: Map<String, List<ContinueWatchingItem>> = gson.fromJson(json, type) ?: emptyMap()
-            // Check the cloud snapshot itself for Trakt tokens to identify Trakt profiles
-            val traktTokensJson = root.optJSONObject("traktTokensByProfile")
             val traktProfiles = mutableSetOf<String>()
-            traktTokensJson?.keys()?.forEach { profileId ->
-                val token = traktTokensJson.optString(profileId, "")
-                if (token.isNotBlank()) traktProfiles.add(profileId)
+
+            val traktTokenType = object : TypeToken<Map<String, TraktRepository.CloudTraktToken>>() {}.type
+            val traktTokens = root.optJSONObject("traktTokens")
+                ?.toString()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { tokenJson ->
+                    runCatching {
+                        gson.fromJson<Map<String, TraktRepository.CloudTraktToken>>(tokenJson, traktTokenType)
+                    }.getOrNull()
+                }
+                .orEmpty()
+
+            traktTokens.forEach { (profileId, token) ->
+                if (profileId.isNotBlank() && token.accessToken.isNotBlank()) {
+                    traktProfiles.add(profileId)
+                }
             }
-            // Also check isAuthenticated via the repository for the active profile
+
             val isActiveProfileTrakt = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
-            val activeProfileId = profileManager.getProfileIdSync()
+            val activeProfileId = profileManager.getProfileIdSync().ifBlank { null }
             if (isActiveProfileTrakt && activeProfileId != null) {
                 traktProfiles.add(activeProfileId)
             }
+
             val nonTraktOnly = map.filterKeys { it !in traktProfiles }
             if (nonTraktOnly.isNotEmpty()) {
                 traktRepository.importLocalContinueWatchingForProfiles(nonTraktOnly)

@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.screens.tv.live
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -28,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -49,6 +53,7 @@ import com.arflix.tv.data.model.IptvProgram
 @Composable
 fun ProgramCell(
     program: IptvProgram,
+    clockTickMillis: Long,
     width: androidx.compose.ui.unit.Dp,
     isNow: Boolean,
     isPast: Boolean,
@@ -67,7 +72,21 @@ fun ProgramCell(
         isNow -> LiveColors.Accent.copy(alpha = 0.45f)
         else -> Color.Transparent
     }
-    val borderWidth = if (focused) 3.dp else 1.dp
+    val borderWidth by animateDpAsState(
+        targetValue = if (focused) 3.dp else 1.dp,
+        animationSpec = tween(durationMillis = 130),
+        label = "program-cell-border",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (focused) 1.012f else 1f,
+        animationSpec = tween(durationMillis = 150),
+        label = "program-cell-scale",
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isPast && !focused) 0.55f else 1f,
+        animationSpec = tween(durationMillis = 150),
+        label = "program-cell-alpha",
+    )
     Box(
         modifier = modifier
             .height(LiveDims.EpgRowHeight)
@@ -77,6 +96,10 @@ fun ProgramCell(
             // text + badges, which the LIVE pill alone consumed — leaving
             // blocks visually empty. Total horizontal overhead is now 8dp.
             .padding(horizontal = 1.dp, vertical = 3.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .onFocusChanged { focused = it.isFocused }
             .border(
                 width = borderWidth,
@@ -85,7 +108,7 @@ fun ProgramCell(
             )
             .clip(RoundedCornerShape(LiveDims.CellRadius))
             .background(bg)
-            .alpha(if (isPast && !focused) 0.55f else 1f)
+            .alpha(contentAlpha)
             .focusable()
             .onKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown &&
@@ -115,21 +138,16 @@ fun ProgramCell(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val nowMs = System.currentTimeMillis()
-                // A program starting within the last 24h that has never aired
-                // before is treated as NEW — cyan pill, matches mockup.
+                val nowMs = clockTickMillis
                 val isNewTag = (nowMs - program.startUtcMillis) in 0..24L * 60 * 60 * 1000L &&
                     !program.isLive(nowMs)
-                if (program.isLive(nowMs)) {
-                    Badge("LIVE", Color.White, LiveColors.LiveRed)
-                    Spacer(Modifier.size(6.dp))
-                } else if (isNewTag) {
+                if (isNewTag) {
                     Badge("NEW", LiveColors.Bg, LiveColors.Accent)
                     Spacer(Modifier.size(6.dp))
                 }
                 Text(
                     text = program.title,
-                    style = LiveType.CellTitle.copy(color = LiveColors.Fg),
+                    style = LiveType.CellTitle.copy(color = LiveColors.Fg, fontSize = 11.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -138,25 +156,25 @@ fun ProgramCell(
             if (!program.description.isNullOrBlank()) {
                 Text(
                     text = program.description!!,
-                    style = LiveType.BodySynopsis.copy(color = LiveColors.FgDim, fontSize = 11.sp),
+                    style = LiveType.BodySynopsis.copy(color = LiveColors.FgDim, fontSize = 9.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     text = formatClock(program.startUtcMillis),
-                    style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 10.sp),
+                    style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 9.sp),
                 )
                 val mins = ((program.endUtcMillis - program.startUtcMillis) / 60_000L)
                     .coerceAtLeast(0L)
                 if (mins > 0) {
                     Text(
                         text = "·  ${mins}min",
-                        style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 10.sp),
+                        style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 9.sp),
                     )
                 }
             }

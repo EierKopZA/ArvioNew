@@ -3,6 +3,7 @@ package com.arflix.tv.ui.screens.home
 import android.app.ActivityManager
 import android.content.Context
 import com.arflix.tv.util.settingsDataStore
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
@@ -14,6 +15,7 @@ import coil.size.Precision
 import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
+import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.MediaRepository
@@ -26,6 +28,7 @@ import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.StreamRepository
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.CloudSyncStatus
+import com.arflix.tv.data.repository.CollectionTemplateManifest
 import com.arflix.tv.data.repository.WatchHistoryRepository
 import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.util.Constants
@@ -150,6 +153,13 @@ class HomeViewModel @Inject constructor(
         if (!isCollectionItem(item)) return null
         return collectionCatalogByMediaId[item.id]?.collectionHeroVideoUrl
             ?.takeIf { it.isNotBlank() }
+    }
+
+    fun getCollectionHeroImageUrl(item: MediaItem): String? {
+        if (!isCollectionItem(item)) return null
+        return collectionCatalogByMediaId[item.id]?.collectionHeroImageUrl
+            ?.takeIf { it.isNotBlank() }
+            ?: collectionCatalogByMediaId[item.id]?.collectionCoverImageUrl?.takeIf { it.isNotBlank() }
     }
 
     private fun isActionableMediaItem(item: MediaItem): Boolean {
@@ -317,7 +327,6 @@ class HomeViewModel @Inject constructor(
     private suspend fun buildFavoriteTvCategory(): Category? {
         // Use non-blocking memory read first; fall back to mutex-guarded disk read
         val snapshot = iptvRepository.getMemoryCachedSnapshot()
-            ?: iptvRepository.getCachedSnapshotOrNull()
             ?: return null
         val favoriteIds = snapshot.favoriteChannels.toHashSet()
         if (favoriteIds.isEmpty()) return null
@@ -349,10 +358,21 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun isCustomCatalogConfig(cfg: CatalogConfig): Boolean {
+        if (cfg.kind == CatalogKind.COLLECTION || cfg.kind == CatalogKind.COLLECTION_RAIL) {
+            return false
+        }
         return !cfg.isPreinstalled ||
             cfg.id.startsWith("custom_") ||
             !cfg.sourceUrl.isNullOrBlank() ||
             !cfg.sourceRef.isNullOrBlank()
+    }
+
+    private fun isCollectionRailConfig(cfg: CatalogConfig): Boolean = cfg.kind == CatalogKind.COLLECTION_RAIL
+
+    private fun isCollectionTileConfig(cfg: CatalogConfig): Boolean = cfg.kind == CatalogKind.COLLECTION
+
+    private fun collectionRowId(group: CollectionGroupKind): String {
+        return "collection_row_${group.name.lowercase(Locale.US)}"
     }
 
     private fun hasRealItems(category: Category?): Boolean {
@@ -489,7 +509,7 @@ class HomeViewModel @Inject constructor(
         }.getOrDefault(emptyList())
     }
     // IO concurrency for network requests (logo fetches, catalog loads, etc.)
-    private val networkParallelism = if (isLowRamDevice) 3 else 6
+    private val networkParallelism = if (isLowRamDevice) 2 else 4
     private val networkDispatcher = Dispatchers.IO.limitedParallelism(networkParallelism)
     private var lastContinueWatchingItems: List<MediaItem> = emptyList()
     private var lastContinueWatchingUpdateMs: Long = 0L
@@ -510,8 +530,7 @@ class HomeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
-    private val _cardLogoUrls = MutableStateFlow<Map<String, String>>(emptyMap())
-    val cardLogoUrls: StateFlow<Map<String, String>> = _cardLogoUrls.asStateFlow()
+    val cardLogoUrls = mutableStateMapOf<String, String>()
 
     // Debounce job for hero updates (Phase 6.1)
     private var heroUpdateJob: Job? = null
@@ -544,17 +563,18 @@ class HomeViewModel @Inject constructor(
         .coerceAtLeast(1)
     private val backdropPreloadWidth = cardBackdropWidth
     private val backdropPreloadHeight = cardBackdropHeight
-    private val initialLogoPrefetchRows = 3
-    private val initialLogoPrefetchItemsPerRow = 6
+    private val initialLogoPrefetchRows = if (isLowRamDevice) 1 else 2
+    private val initialLogoPrefetchItemsPerRow = if (isLowRamDevice) 3 else 4
     // Prefetch enough backdrops to fill the first visible row on the home screen
     // (typically 6-8 cards on a TV). Was 2, which left the majority of the first
     // row unpreloaded on cold start, causing visible black -> image pop-in.
-    private val initialBackdropPrefetchItems = 6
-    private val incrementalLogoPrefetchItems = 8
-    private val prioritizedLogoPrefetchItems = 10
-    private val incrementalBackdropPrefetchItems = 2
-    private val initialCategoryItemCap = 30
-    private val categoryPageSize = 16
+    private val initialBackdropPrefetchItems = if (isLowRamDevice) 2 else 3
+    private val incrementalLogoPrefetchItems = if (isLowRamDevice) 4 else 6
+    private val prioritizedLogoPrefetchItems = if (isLowRamDevice) 5 else 7
+    private val incrementalBackdropPrefetchItems = 1
+    private val initialCategoryItemCap = if (isLowRamDevice) 12 else 16
+    private val categoryPageSize = if (isLowRamDevice) 12 else 16
+    private val initialMdblistCatalogCount = if (isLowRamDevice) 2 else 3
     private val nearEndThreshold = 4
 
     // Track current focus for ahead-of-focus preloading
@@ -632,6 +652,16 @@ class HomeViewModel @Inject constructor(
         LinkedHashMap(logoCache)
     }
 
+    private fun replaceCardLogoState(snapshot: Map<String, String>) {
+        val keysToRemove = cardLogoUrls.keys.toList().filterNot { snapshot.containsKey(it) }
+        keysToRemove.forEach { cardLogoUrls.remove(it) }
+        snapshot.forEach { (key, value) ->
+            if (cardLogoUrls[key] != value) {
+                cardLogoUrls[key] = value
+            }
+        }
+    }
+
     private fun publishLogoCacheSnapshotIfChanged() {
         val snapshot: Map<String, String>
         synchronized(logoCacheLock) {
@@ -640,7 +670,7 @@ class HomeViewModel @Inject constructor(
             lastPublishedLogoCacheRevision = logoCacheRevision
         }
         lastLogoCachePublishMs = SystemClock.elapsedRealtime()
-        _cardLogoUrls.value = snapshot
+        replaceCardLogoState(snapshot)
     }
 
     private fun scheduleLogoCachePublish(highPriority: Boolean = false) {
@@ -757,6 +787,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             realtimeSyncManager.watchHistoryEvents.collect {
                 refreshContinueWatchingOnly(force = true)
+                runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
             }
         }
 
@@ -766,6 +797,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             realtimeSyncManager.accountSyncEvents.collect {
                 loadHomeData()
+                runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
             }
         }
 
@@ -778,7 +810,7 @@ class HomeViewModel @Inject constructor(
         // Restore logo URL cache from disk for instant clearlogos on cold start
         restoreLogoCacheFromDisk()
         if (logoCache.isNotEmpty()) {
-            _cardLogoUrls.value = snapshotLogoCache()
+            replaceCardLogoState(snapshotLogoCache())
             // Keep startup smooth: defer memory warmup until after initial Home rendering.
             viewModelScope.launch {
                 delay(if (isLowRamDevice) 1_800L else 1_200L)
@@ -901,12 +933,9 @@ class HomeViewModel @Inject constructor(
             try {
                 // Phase 1: Load channels from disk cache
                 val snapshot = iptvRepository.getMemoryCachedSnapshot()
-                    ?: iptvRepository.getCachedSnapshotOrNull()
                 if (snapshot == null || snapshot.channels.isEmpty()) {
                     // No disk cache — do full network load so Favorite TV row can appear
-                    runCatching {
-                        iptvRepository.loadSnapshot(forcePlaylistReload = false, forceEpgReload = false)
-                    }
+                    return@launch
                 }
                 // Phase 2: Refresh EPG for favorite channels (lightweight network call)
                 val snap = iptvRepository.getMemoryCachedSnapshot()
@@ -1045,7 +1074,7 @@ class HomeViewModel @Inject constructor(
             heroLogoUrl = finalLogo,
             error = null
         )
-        _cardLogoUrls.value = snapshotLogoCache()
+        replaceCardLogoState(snapshotLogoCache())
         refreshWatchedBadges()
     }
 
@@ -1073,8 +1102,12 @@ class HomeViewModel @Inject constructor(
                 mediaType = MediaType.MOVIE,
                 image = config.collectionCoverImageUrl.orEmpty(),
                 backdrop = config.collectionFocusGifUrl
+                    ?: config.collectionHeroImageUrl
                     ?: config.collectionCoverImageUrl,
-                status = "collection:${config.id}"
+                status = "collection:${config.id}",
+                collectionGroup = config.collectionGroup,
+                collectionTileShape = config.collectionTileShape,
+                collectionHideTitle = config.collectionHideTitle
             )
         }
         return Category(
@@ -1183,10 +1216,9 @@ class HomeViewModel @Inject constructor(
                 val cachedContinueWatching = traktRepository.preloadContinueWatchingCache()
                 val savedCatalogs = withContext(networkDispatcher) {
                     runCatching {
-                        streamRepository.ensureCustomAddons(
-                            mediaRepository.getDefaultCatalogConfigs()
-                                .flatMap { it.requiredAddonUrls }
-                                .distinct()
+                        streamRepository.removeCustomAddonsByUrl(
+                            CollectionTemplateManifest.autoInstalledAddonUrls() +
+                                listOf(MediaRepository.STREAMING_COLLECTION_ADDON_URL)
                         )
                         val addons = streamRepository.installedAddons.first()
                         catalogRepository.syncAddonCatalogs(addons)
@@ -1245,7 +1277,7 @@ class HomeViewModel @Inject constructor(
                     runCatching { buildFavoriteTvCategory() }.getOrNull()
                 }
 
-                val categories = withContext(networkDispatcher) {
+                var categories = withContext(networkDispatcher) {
                     val baseCategories = runCatching {
                         mediaRepository.getHomeCategories()
                     }.getOrElse { emptyList() }
@@ -1264,7 +1296,12 @@ class HomeViewModel @Inject constructor(
 
                     // Split preinstalled into TMDB-based and MDBList-based
                     val tmdbPreinstalled = savedCatalogs
-                        .filter { it.isPreinstalled && it.sourceUrl.isNullOrBlank() }
+                        .filter {
+                            it.isPreinstalled &&
+                                it.sourceUrl.isNullOrBlank() &&
+                                !isCollectionRailConfig(it) &&
+                                !isCollectionTileConfig(it)
+                        }
                         .mapNotNull { cfg ->
                             val category = baseById[cfg.id] ?: return@mapNotNull null
                             if (cfg.title.isNotBlank() && cfg.title != category.title) {
@@ -1274,9 +1311,14 @@ class HomeViewModel @Inject constructor(
                             }
                         }
                     // Load MDBList preinstalled catalogs - first 8 immediately, rest lazily on scroll
-                    val mdblistConfigs = savedCatalogs.filter { it.isPreinstalled && !it.sourceUrl.isNullOrBlank() }
-                    val initialBatch = mdblistConfigs.take(3)
-                    val deferredBatch = mdblistConfigs.drop(8)
+                    val mdblistConfigs = savedCatalogs.filter {
+                        it.isPreinstalled &&
+                            !it.sourceUrl.isNullOrBlank() &&
+                            !isCollectionRailConfig(it) &&
+                            !isCollectionTileConfig(it)
+                    }
+                    val initialBatch = mdblistConfigs.take(initialMdblistCatalogCount)
+                    val deferredBatch = mdblistConfigs.drop(initialBatch.size)
                     val mdblistInitial = initialBatch.map { cfg ->
                         async(networkDispatcher) {
                             try {
@@ -1315,7 +1357,11 @@ class HomeViewModel @Inject constructor(
                         }
                     }
                     val preinstalled = savedCatalogs
-                        .filter { it.isPreinstalled }
+                        .filter {
+                            it.isPreinstalled &&
+                                !isCollectionRailConfig(it) &&
+                                !isCollectionTileConfig(it)
+                        }
                         .mapNotNull { cfg -> allPreinstalledById[cfg.id] }
                     val customCatalogConfigs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
 
@@ -1324,7 +1370,7 @@ class HomeViewModel @Inject constructor(
                     // loadCustomCatalogsIncrementally which loaded them one-by-one and
                     // caused slow incremental insertion. This way everything appears in
                     // the single bulk categories set at line ~1250.
-                    val customSemaphore = kotlinx.coroutines.sync.Semaphore(if (isLowRamDevice) 2 else 4)
+                    val customSemaphore = kotlinx.coroutines.sync.Semaphore(if (isLowRamDevice) 1 else 2)
                     val freshCustomCategories = customCatalogConfigs.map { cfg ->
                         async(networkDispatcher) {
                             customSemaphore.withPermit {
@@ -1391,6 +1437,9 @@ class HomeViewModel @Inject constructor(
                         "sky", "crunchyroll", "peacock"
                     )
                     val resolved = savedCatalogs.mapNotNull { cfg ->
+                        if (isCollectionRailConfig(cfg) || isCollectionTileConfig(cfg)) {
+                            return@mapNotNull null
+                        }
                         val cat = allById[cfg.id]
                         if (cat == null || cat.items.isEmpty()) return@mapNotNull null
                         if (!cfg.isPreinstalled &&
@@ -1401,54 +1450,40 @@ class HomeViewModel @Inject constructor(
                     resolved
                 }
                 val collectionRows = withContext(networkDispatcher) {
-                    val collectionConfigs = savedCatalogs.filter { it.kind == CatalogKind.COLLECTION }
-                    val loadedCollections = collectionConfigs.map { cfg ->
-                        async(networkDispatcher) {
-                            val result = runCatching {
-                                mediaRepository.loadCollectionCatalogPage(catalog = cfg, offset = 0, limit = 20)
-                            }.getOrNull() ?: return@async null
-                            if (result.items.isNotEmpty()) cfg else null
-                        }
-                    }.awaitAll().filterNotNull()
-
-                    // Group by collection kind (Service, Franchise, Genre).
-                    // Use pluralized, user-facing titles and enforce a stable
-                    // Services → Franchises → Genres order regardless of
-                    // per-item catalog ordering.
-                    val grouped = LinkedHashMap<String, MutableList<CatalogConfig>>()
-                    loadedCollections.forEach { cfg ->
-                        val groupTitle = when (cfg.collectionGroup) {
-                            com.arflix.tv.data.model.CollectionGroupKind.SERVICE -> "Services"
-                            com.arflix.tv.data.model.CollectionGroupKind.FRANCHISE -> "Franchises"
-                            com.arflix.tv.data.model.CollectionGroupKind.GENRE -> "Genres"
-                            com.arflix.tv.data.model.CollectionGroupKind.DIRECTOR -> "Directors"
-                            null -> "Collections"
-                        }
-                        grouped.getOrPut(groupTitle) { mutableListOf() }.add(cfg)
+                    val collectionConfigs = savedCatalogs.filter { cfg ->
+                        isCollectionTileConfig(cfg) && CollectionTemplateManifest.isValidCollectionConfig(cfg)
                     }
-                    val groupOrder = listOf("Services", "Franchises", "Genres", "Directors", "Collections")
-                    groupOrder.mapNotNull { title ->
-                        grouped[title]?.let { items ->
+
+                    savedCatalogs.mapNotNull { cfg ->
+                        if (!isCollectionRailConfig(cfg) || !CollectionTemplateManifest.isValidCollectionConfig(cfg)) {
+                            return@mapNotNull null
+                        }
+                        val group = cfg.collectionGroup ?: return@mapNotNull null
+                        val items = collectionConfigs
+                            .filter { it.collectionGroup == group }
+                        if (items.isEmpty()) {
+                            null
+                        } else {
                             HomeCollectionRow(
-                                id = "collection_row_${title.lowercase(Locale.US)}",
-                                title = title,
+                                id = collectionRowId(group),
+                                title = cfg.title,
                                 items = items
                             )
                         }
                     }
                 }
-                val collectionCategories = collectionRows.map { toCollectionCategory(it) }
-                // Insert Services/Franchises/Genres right after the trending
-                // anime row. If anime hasn't loaded, fall back to "after the
-                // last trending_* row", otherwise append.
-                val animeIdx = categories.indexOfFirst { it.id == "trending_anime" }
-                val lastTrendingIdx = categories.indexOfLast { it.id.startsWith("trending_") }
-                val insertAt = when {
-                    animeIdx >= 0 -> animeIdx + 1
-                    lastTrendingIdx >= 0 -> lastTrendingIdx + 1
-                    else -> categories.size
-                }
-                categories.addAll(insertAt, collectionCategories)
+                val categoryById = categories.associateBy { it.id }
+                val collectionCategoryById = collectionRows.associateBy { it.id }
+                categories = savedCatalogs.mapNotNull { cfg ->
+                    when {
+                        isCollectionTileConfig(cfg) -> null
+                        isCollectionRailConfig(cfg) -> {
+                            val group = cfg.collectionGroup ?: return@mapNotNull null
+                            collectionCategoryById[collectionRowId(group)]?.let { toCollectionCategory(it) }
+                        }
+                        else -> categoryById[cfg.id]
+                    }
+                }.toMutableList()
                 if (categories.any { it.id != "continue_watching" && !it.id.startsWith("collection_row_") }) {
                     lastResolvedBaseCategories = categories.filter {
                         it.id != "continue_watching" && !it.id.startsWith("collection_row_")
@@ -1538,7 +1573,7 @@ class HomeViewModel @Inject constructor(
                             heroLogoUrl = heroLogoFromCache ?: _uiState.value.heroLogoUrl
                         )
                         heroItem?.let { hydrateHeroDetailsIfNeeded(it) }
-                        _cardLogoUrls.value = snapshotLogoCache()
+                        replaceCardLogoState(snapshotLogoCache())
                     }
                 }
 
@@ -1588,7 +1623,7 @@ class HomeViewModel @Inject constructor(
                     error = null
                 )
                 heroItem?.let { hydrateHeroDetailsIfNeeded(it) }
-                _cardLogoUrls.value = snapshotLogoCache()
+                replaceCardLogoState(snapshotLogoCache())
                 refreshWatchedBadges()
 
                 // Persist the real categories to disk so the next app launch
@@ -1959,10 +1994,14 @@ class HomeViewModel @Inject constructor(
         }
 
         savedCatalogs.forEach { cfg ->
-            if (cfg.kind == CatalogKind.COLLECTION) return@forEach
+            if (isCollectionTileConfig(cfg)) return@forEach
             rows.add(
                 Category(
-                    id = cfg.id,
+                    id = if (isCollectionRailConfig(cfg)) {
+                        collectionRowId(cfg.collectionGroup ?: return@forEach)
+                    } else {
+                        cfg.id
+                    },
                     title = cfg.title,
                     items = placeholderItems
                 )
@@ -3119,4 +3158,5 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+
 

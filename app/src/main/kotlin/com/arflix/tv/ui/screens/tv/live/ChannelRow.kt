@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.screens.tv.live
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -29,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -55,12 +59,14 @@ import com.arflix.tv.data.model.IptvNowNext
 @Composable
 fun ChannelRow(
     channel: EnrichedChannel,
+    clockTickMillis: Long,
     nowNext: IptvNowNext?,
     isActive: Boolean,
     isFavorite: Boolean,
     stripe: Boolean = false,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
     val bg = when {
@@ -70,16 +76,31 @@ fun ChannelRow(
         else -> Color.Transparent
     }
     val now = nowNext?.now
+    val animatedBorderWidth by animateDpAsState(
+        targetValue = if (focused) 3.dp else 0.dp,
+        animationSpec = tween(durationMillis = 130),
+        label = "channel-row-border",
+    )
+    val animatedScale by animateFloatAsState(
+        targetValue = if (focused) 1.01f else 1f,
+        animationSpec = tween(durationMillis = 150),
+        label = "channel-row-scale",
+    )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(LiveDims.EpgRowHeight)
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
             .onFocusChanged { focused = it.isFocused }
             .border(
-                width = if (focused) 3.dp else 0.dp,
+                width = animatedBorderWidth,
                 color = if (focused) LiveColors.FocusRing else Color.Transparent,
             )
             .background(if (focused) LiveColors.PanelRaised else bg)
+            .focusable()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onFavoriteToggle,
@@ -156,7 +177,7 @@ fun ChannelRow(
             // Only the thin progress underline stays here — programme info
             // itself is shown exclusively in the time-aligned grid cells to
             // the right, not smeared across the channel name column.
-            val progress = progressOf(now)
+            val progress = remember(now, clockTickMillis) { progressOf(now) }
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress },

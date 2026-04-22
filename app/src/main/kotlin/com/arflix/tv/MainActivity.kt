@@ -71,6 +71,7 @@ import com.arflix.tv.util.settingsDataStore
 import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
@@ -100,6 +101,7 @@ import com.arflix.tv.ui.theme.ArflixTvTheme
 import com.arflix.tv.ui.theme.BackgroundGradientCenter
 import com.arflix.tv.ui.theme.BackgroundGradientEnd
 import com.arflix.tv.ui.theme.BackgroundGradientStart
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arflix.tv.worker.TraktSyncWorker
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.Lazy
@@ -197,13 +199,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             // Observe device mode override changes live from DataStore
-            val deviceModeOverride by remember { this@MainActivity.settingsDataStore.data.map { it[DEVICE_MODE_OVERRIDE_KEY] } }.collectAsState(initial = null)
+            val deviceModeOverride by remember {
+                this@MainActivity.settingsDataStore.data.map { it[DEVICE_MODE_OVERRIDE_KEY] }
+            }.collectAsStateWithLifecycle(initialValue = null)
             val skipProfileSelection by remember {
                 this@MainActivity.settingsDataStore.data.map { it[SKIP_PROFILE_SELECTION_KEY] ?: false }
-            }.collectAsState(initial = null as Boolean?)
+            }.collectAsStateWithLifecycle(initialValue = null as Boolean?)
             val activeProfileLoaded by remember {
                 profileRepository.get().activeProfileId.map { true }
-            }.collectAsState(initial = false)
+            }.collectAsStateWithLifecycle(initialValue = false)
             val deviceType = when (deviceModeOverride) {
                 "tv" -> DeviceType.TV
                 "tablet" -> DeviceType.TABLET
@@ -220,7 +224,7 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
             ) {
                 ArflixTvTheme {
-                    val startupState by startupViewModel.state.collectAsState()
+                    val startupState by startupViewModel.state.collectAsStateWithLifecycle()
                     ArflixApp(
                         authRepository = authRepository.get(),
                         profileRepository = profileRepository.get(),
@@ -255,21 +259,16 @@ class MainActivity : ComponentActivity() {
                 authRepository.get().checkAuthState()
             }
             ArflixApplication.instance.scheduleTraktSyncIfNeeded()
-
-            // Warm IPTV cache early — so the TV page has its snapshot + EPG
-            // already resident when the user navigates into it, and no
-            // "loading channels" spinner ever shows.
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching {
-                    val repo = iptvRepository.get()
-                    // Primes the snapshot from disk/memory; if missing,
-                    // kicks off a full refresh in the background.
-                    val cached = repo.getCachedSnapshotOrNull()
-                    if (cached == null || cached.channels.isEmpty()) {
-                        repo.loadSnapshot(forcePlaylistReload = false, forceEpgReload = false)
+            if (initialDeviceType == DeviceType.TV) {
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    delay(8_000L)
+                    runCatching {
+                        iptvRepository.get().getCachedSnapshotOrNull()
                     }
                 }
             }
+
+            // Warm IPTV cache early — so the TV page has its snapshot + EPG
         }
     }
 
@@ -414,8 +413,8 @@ fun ArflixApp(
     onExitApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val authState by authRepository.authState.collectAsState()
-    val activeProfile by profileRepository.activeProfile.collectAsState(initial = null)
+    val authState by authRepository.authState.collectAsStateWithLifecycle()
+    val activeProfile by profileRepository.activeProfile.collectAsStateWithLifecycle(initialValue = null)
     val startupReady = skipProfileSelection != null &&
         activeProfileLoaded &&
         authState !is AuthState.Loading

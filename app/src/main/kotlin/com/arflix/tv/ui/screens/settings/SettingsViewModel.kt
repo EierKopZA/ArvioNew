@@ -10,13 +10,16 @@ import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.api.TraktDeviceCode
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CatalogRepository
+import com.arflix.tv.data.repository.CollectionTemplateManifest
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.IptvConfig
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.IptvPlaylistEntry
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
@@ -172,6 +175,16 @@ class SettingsViewModel @Inject constructor(
     private val updatePreferences: UpdatePreferences,
     private val apkDownloader: ApkDownloader
 ) : ViewModel() {
+    private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
+        return catalogs.filter { config ->
+            when (config.kind) {
+                CatalogKind.COLLECTION -> false
+                CatalogKind.COLLECTION_RAIL -> CollectionTemplateManifest.isValidCollectionConfig(config)
+                else -> true
+            }
+        }
+    }
+
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -221,6 +234,7 @@ class SettingsViewModel @Inject constructor(
     private var pendingProfileSwitchAfterCloudLogin: Boolean = false
     private var observedProfileId: String? = null
     private var hasObservedIptvConfig: Boolean = false
+    private var lastObservedIptvConfigSignature: String? = null
 
     private enum class CloudRestoreResult {
         RESTORED,
@@ -371,6 +385,7 @@ class SettingsViewModel @Inject constructor(
                 if (observedProfileId == profileId) return@collect
                 observedProfileId = profileId
                 hasObservedIptvConfig = false
+                lastObservedIptvConfigSignature = null
                 loadSettings()
             }
         }
@@ -1125,7 +1140,10 @@ class SettingsViewModel @Inject constructor(
                     hasObservedIptvConfig = true
                     lastObservedIptvM3u = config.m3uUrl
                     lastObservedStalkerUrl = config.stalkerPortalUrl
-                    val hasAnyIptvConfig = config.m3uUrl.isNotBlank() || config.stalkerPortalUrl.isNotBlank()
+                    lastObservedIptvConfigSignature = config.syncSignature()
+                    val hasAnyIptvConfig = config.m3uUrl.isNotBlank() ||
+                        config.stalkerPortalUrl.isNotBlank() ||
+                        config.playlists.any { it.enabled && it.m3uUrl.isNotBlank() }
                     if (!hasAnyIptvConfig) {
                         _uiState.value = _uiState.value.copy(
                             iptvChannelCount = 0,
@@ -1140,16 +1158,21 @@ class SettingsViewModel @Inject constructor(
                     return@collect
                 }
 
-                val hasAnyConfig = config.m3uUrl.isNotBlank() || config.stalkerPortalUrl.isNotBlank()
-                if (hasAnyConfig && (config.m3uUrl != lastObservedIptvM3u || config.stalkerPortalUrl != lastObservedStalkerUrl)) {
+                val hasAnyConfig = config.m3uUrl.isNotBlank() ||
+                    config.stalkerPortalUrl.isNotBlank() ||
+                    config.playlists.any { it.enabled && it.m3uUrl.isNotBlank() }
+                val configSignature = config.syncSignature()
+                if (hasAnyConfig && configSignature != lastObservedIptvConfigSignature) {
                     lastObservedIptvM3u = config.m3uUrl
                     lastObservedStalkerUrl = config.stalkerPortalUrl
+                    lastObservedIptvConfigSignature = configSignature
                     if (iptvLoadJob?.isActive != true) {
                         refreshIptv(showToast = false, force = false)
                     }
                 } else if (!hasAnyConfig) {
                     lastObservedIptvM3u = ""
                     lastObservedStalkerUrl = ""
+                    lastObservedIptvConfigSignature = configSignature
                     _uiState.value = _uiState.value.copy(
                         iptvChannelCount = 0,
                         iptvError = null,
@@ -1169,8 +1192,9 @@ class SettingsViewModel @Inject constructor(
                 } else {
                     catalogs
                 }
-                if (_uiState.value.catalogs != effectiveCatalogs) {
-                    _uiState.value = _uiState.value.copy(catalogs = effectiveCatalogs)
+                val visible = visibleCatalogs(effectiveCatalogs)
+                if (_uiState.value.catalogs != visible) {
+                    _uiState.value = _uiState.value.copy(catalogs = visible)
                 }
             }
         }
@@ -1225,7 +1249,7 @@ class SettingsViewModel @Inject constructor(
             val result = catalogRepository.removeCustomCatalog(catalogId)
             result.onSuccess {
                 // Refresh the catalog list in UI state after removal
-                val updatedCatalogs = catalogRepository.getCatalogs()
+                val updatedCatalogs = visibleCatalogs(catalogRepository.getCatalogs())
                 _uiState.value = _uiState.value.copy(
                     catalogs = updatedCatalogs,
                     toastMessage = "Catalog removed",
@@ -2081,4 +2105,25 @@ class SettingsViewModel @Inject constructor(
         super.onCleared()
         traktPollingJob?.cancel()
     }
+}
+
+private fun IptvConfig.syncSignature(): String {
+    val playlistsSignature = playlists
+        .sortedBy { it.id }
+        .joinToString("|") { playlist ->
+            listOf(
+                playlist.id,
+                playlist.name,
+                playlist.m3uUrl,
+                playlist.epgUrl,
+                playlist.enabled.toString()
+            ).joinToString("~")
+        }
+    return listOf(
+        m3uUrl,
+        epgUrl,
+        stalkerPortalUrl,
+        stalkerMacAddress,
+        playlistsSignature
+    ).joinToString("||")
 }

@@ -22,6 +22,7 @@ import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.CollectionSourceConfig
 import com.arflix.tv.data.model.CollectionSourceKind
+import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
@@ -106,6 +107,7 @@ class MediaRepository @Inject constructor(
     private val imdbIdCache = ConcurrentHashMap<String, String>()
     private val addonImdbToTmdbCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
     private val addonTitleToTmdbCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
+    private val collectionRefsCache = ConcurrentHashMap<String, CacheEntry<List<Pair<MediaType, Int>>>>()
 
     private fun <T> getFromCache(cache: Map<String, CacheEntry<T>>, key: String): T? {
         val entry = cache[key] ?: return null
@@ -142,6 +144,92 @@ class MediaRepository @Inject constructor(
 
     private fun cacheAddonTitleLookup(key: String, value: Pair<MediaType, Int>?) {
         addonTitleToTmdbCache[key] = CacheEntry(value, System.currentTimeMillis())
+    }
+
+    private fun getCollectionRefsCache(key: String): List<Pair<MediaType, Int>>? {
+        val entry = collectionRefsCache[key] ?: return null
+        return if (System.currentTimeMillis() - entry.timestamp < CACHE_TTL_MS) {
+            entry.data
+        } else {
+            collectionRefsCache.remove(key)
+            null
+        }
+    }
+
+    private fun collectionRefsCacheKey(catalog: CatalogConfig): String {
+        return buildString {
+            append(catalog.id)
+            append('|')
+            catalog.collectionSources.forEach { source ->
+                append(source.kind.name)
+                append(':')
+                append(source.mediaType.orEmpty())
+                append(':')
+                append(source.addonId.orEmpty())
+                append(':')
+                append(source.addonCatalogType.orEmpty())
+                append(':')
+                append(source.addonCatalogId.orEmpty())
+                append(':')
+                append(source.tmdbGenreId ?: -1)
+                append(':')
+                append(source.tmdbPersonId ?: -1)
+                append(':')
+                append(source.tmdbCollectionId ?: -1)
+                append(':')
+                append(source.tmdbKeywordId ?: -1)
+                append(':')
+                append(source.tmdbWatchProviderId ?: -1)
+                append(':')
+                append(source.watchRegion.orEmpty())
+                append(':')
+                append(source.sortBy.orEmpty())
+                append(':')
+                append(source.mdblistSlug.orEmpty())
+                append(':')
+                append(source.curatedRefs?.joinToString(",").orEmpty())
+                append(';')
+            }
+        }
+    }
+
+    private suspend fun resolveCollectionCatalogRefs(
+        catalog: CatalogConfig,
+        requiredCount: Int
+    ): List<Pair<MediaType, Int>> {
+        val cacheKey = collectionRefsCacheKey(catalog)
+        val cached = getCollectionRefsCache(cacheKey)
+        if (cached != null && cached.size >= requiredCount.coerceAtLeast(1)) {
+            return cached
+        }
+
+        val refs = LinkedHashSet<Pair<MediaType, Int>>()
+        cached?.forEach { refs.add(it) }
+        val targetCount = requiredCount.coerceAtLeast(1)
+        catalog.collectionSources.forEach { source ->
+            val remaining = (targetCount - refs.size).coerceAtLeast(1)
+            val sourceBudget = when (source.kind) {
+                CollectionSourceKind.ADDON_CATALOG -> (remaining + 12).coerceAtLeast(24).coerceAtMost(120)
+                CollectionSourceKind.MDBLIST_PUBLIC -> (remaining + 8).coerceAtLeast(24).coerceAtMost(96)
+                else -> (remaining + 8).coerceAtLeast(24).coerceAtMost(72)
+            }
+            val sourceRefs = runCatching {
+                resolveCollectionSourceRefs(
+                    source,
+                    offset = 0,
+                    limit = sourceBudget
+                )
+            }.getOrDefault(emptyList())
+            sourceRefs.forEach { refs.add(it) }
+            if (refs.size >= targetCount) {
+                return@forEach
+            }
+        }
+        val resolved = refs.toList()
+        if (resolved.isNotEmpty()) {
+            collectionRefsCache[cacheKey] = CacheEntry(resolved, System.currentTimeMillis())
+        }
+        return resolved
     }
 
     fun getCachedItem(mediaType: MediaType, mediaId: Int): MediaItem? {
@@ -1062,7 +1150,141 @@ class MediaRepository @Inject constructor(
             )
         )
 
-            return topLevelCatalogs + services + franchises + genres
+            val legacyCollectionsByTitle = (services + franchises + genres)
+                .associateBy { it.title.trim().lowercase(Locale.US) }
+            val legacyCollectionAliases = mapOf(
+                "marvel" to "mcu universe",
+                "harry potter" to "wizarding world",
+                "james bond" to "007",
+                "jurassic park" to "jurassic world",
+                "lord of the rings" to "lord of the rings & hobbit",
+                "family" to "family movie night",
+                "superhero" to "superhero & villains"
+            )
+            fun resolveLegacyCollection(title: String): CatalogConfig? {
+                val normalizedTitle = title.trim().lowercase(Locale.US)
+                return legacyCollectionsByTitle[normalizedTitle]
+                    ?: legacyCollectionAliases[normalizedTitle]?.let(legacyCollectionsByTitle::get)
+            }
+            fun mergeCollectionSources(
+                primary: List<CollectionSourceConfig>,
+                fallback: List<CollectionSourceConfig>
+            ): List<CollectionSourceConfig> {
+                return (primary + fallback).distinctBy { source ->
+                    listOf(
+                        source.kind.name,
+                        source.mediaType.orEmpty(),
+                        source.addonId.orEmpty(),
+                        source.addonCatalogType.orEmpty(),
+                        source.addonCatalogId.orEmpty(),
+                        source.tmdbGenreId?.toString().orEmpty(),
+                        source.tmdbPersonId?.toString().orEmpty(),
+                        source.tmdbCollectionId?.toString().orEmpty(),
+                        source.tmdbKeywordId?.toString().orEmpty(),
+                        source.tmdbWatchProviderId?.toString().orEmpty(),
+                        source.watchRegion.orEmpty(),
+                        source.sortBy.orEmpty(),
+                        source.curatedRefs?.joinToString(",").orEmpty(),
+                        source.mdblistSlug.orEmpty()
+                    ).joinToString("|")
+                }
+            }
+            val bundledGenreCovers = mapOf(
+                "action" to "file:///android_asset/genre_cards/action.jpg",
+                "comedy" to "file:///android_asset/genre_cards/comedy.jpg",
+                "sci-fi" to "file:///android_asset/genre_cards/sci-fi.jpg",
+                "crime" to "file:///android_asset/genre_cards/crime.jpg",
+                "thriller" to "file:///android_asset/genre_cards/thriller.jpg",
+                "drama" to "file:///android_asset/genre_cards/drama.jpg",
+                "horror" to "file:///android_asset/genre_cards/horror.jpg",
+                "mystery" to "file:///android_asset/genre_cards/mystery.jpg",
+                "mindfuck" to "file:///android_asset/genre_cards/mindfuck.jpg",
+                "anime" to "file:///android_asset/genre_cards/anime.jpg",
+                "documentary" to "file:///android_asset/genre_cards/documentary.jpg",
+                "romance" to "file:///android_asset/genre_cards/romance.jpg",
+                "history" to "file:///android_asset/genre_cards/history.jpg",
+                "animation" to "file:///android_asset/genre_cards/animation.jpg",
+                "reality tv" to "file:///android_asset/genre_cards/reality_tv.jpg",
+                "family" to "file:///android_asset/genre_cards/family.jpg",
+                "nature" to "file:///android_asset/genre_cards/nature.jpg",
+                "fantasy" to "file:///android_asset/genre_cards/fantasy.jpg",
+                "adventure" to "file:///android_asset/genre_cards/adventure.jpg",
+                "superhero" to "file:///android_asset/genre_cards/superhero.jpg",
+                "war & military" to "file:///android_asset/genre_cards/war_military.jpg",
+                "western" to "file:///android_asset/genre_cards/western.jpg"
+            )
+
+            val collectionRails = CollectionTemplateManifest.railOrder.map { group ->
+                CatalogConfig(
+                    id = CollectionTemplateManifest.railCatalogId(group),
+                    title = CollectionTemplateManifest.railTitle(group),
+                    sourceType = CatalogSourceType.PREINSTALLED,
+                    isPreinstalled = true,
+                    kind = CatalogKind.COLLECTION_RAIL,
+                    collectionGroup = group
+                )
+            }
+
+            val templateCollections = CollectionTemplateManifest.entries.map { entry ->
+                val legacy = resolveLegacyCollection(entry.title)
+                val legacyStaticCover = legacy?.collectionCoverImageUrl?.takeUnless {
+                    it.contains(".gif", ignoreCase = true) || it.contains("gifv", ignoreCase = true)
+                }
+                val legacyHeroCover = legacy?.collectionHeroImageUrl?.takeUnless {
+                    it.contains(".gif", ignoreCase = true) || it.contains("gifv", ignoreCase = true)
+                }
+                val bundledGenreCover = bundledGenreCovers[entry.title.trim().lowercase(Locale.US)]
+                val preferredCover = when (entry.group) {
+                    CollectionGroupKind.GENRE -> bundledGenreCover ?: entry.coverImageUrl
+                    CollectionGroupKind.FRANCHISE -> if (entry.sources.isNotEmpty()) {
+                        entry.coverImageUrl
+                    } else {
+                        legacyStaticCover ?: entry.coverImageUrl
+                    }
+                    else -> entry.coverImageUrl
+                }
+                val preferredHero = when (entry.group) {
+                    CollectionGroupKind.SERVICE,
+                    CollectionGroupKind.GENRE,
+                    CollectionGroupKind.FRANCHISE -> preferredCover
+                    else -> legacy?.collectionHeroImageUrl ?: preferredCover
+                }
+                CatalogConfig(
+                    id = entry.id,
+                    title = entry.title,
+                    sourceType = CatalogSourceType.PREINSTALLED,
+                    isPreinstalled = true,
+                    kind = CatalogKind.COLLECTION,
+                    collectionGroup = entry.group,
+                    collectionDescription = legacy?.collectionDescription
+                        ?: CollectionTemplateManifest.descriptionFor(entry),
+                    collectionCoverImageUrl = preferredCover,
+                    collectionFocusGifUrl = preferredCover,
+                    collectionHeroImageUrl = preferredHero,
+                    collectionHeroGifUrl = preferredHero,
+                    collectionHeroVideoUrl = entry.heroVideoUrl ?: legacy?.collectionHeroVideoUrl,
+                    collectionClearLogoUrl = null,
+                    collectionTileShape = if (entry.group == CollectionGroupKind.GENRE) {
+                        CollectionTileShape.LANDSCAPE
+                    } else {
+                        entry.tileShape
+                    },
+                    collectionHideTitle = if (entry.group == CollectionGroupKind.GENRE) {
+                        false
+                    } else {
+                        entry.hideTitle
+                    },
+                    collectionSources = mergeCollectionSources(
+                        primary = entry.sources,
+                        fallback = legacy?.collectionSources.orEmpty()
+                    ),
+                    requiredAddonUrls = emptyList()
+                )
+            }
+
+            val pinnedLeadCatalogs = topLevelCatalogs.drop(1).take(3)
+            val trailingCatalogs = listOf(topLevelCatalogs.first()) + topLevelCatalogs.drop(4)
+            return pinnedLeadCatalogs + collectionRails + templateCollections + trailingCatalogs
         }
     }
 
@@ -1323,40 +1545,41 @@ class MediaRepository @Inject constructor(
             return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
         }
 
-        val refs = LinkedHashSet<Pair<MediaType, Int>>()
-        // Each source is resolved under its own try/catch so a single failing
-        // addon or TMDB endpoint can't take down the whole collection load.
-        // Previously an uncaught HTTP 404 from one source (e.g. a keyword
-        // query that returns no rows or a collection id TMDB retired)
-        // propagated out of the coroutineScope and crashed the activity on
-        // Main when the user opened the collection detail screen.
-        catalog.collectionSources.forEach { source ->
-            val sourceRefs = runCatching {
-                resolveCollectionSourceRefs(
-                    source,
-                    offset = 0,
-                    limit = (offset + limit).coerceAtLeast(limit)
-                )
-            }.getOrDefault(emptyList())
-            sourceRefs.forEach { refs.add(it) }
-        }
+        val refs = resolveCollectionCatalogRefs(
+            catalog = catalog,
+            requiredCount = (offset + limit).coerceAtLeast(limit)
+        )
         if (refs.isEmpty()) return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
 
         val pageRefs = refs.drop(offset).take(limit)
-        val semaphore = Semaphore(6)
-        val jobs = pageRefs.map { (type, tmdbId) ->
+        val itemsByRef = LinkedHashMap<Pair<MediaType, Int>, MediaItem>()
+        val missingRefs = mutableListOf<Pair<MediaType, Int>>()
+        pageRefs.forEach { (type, tmdbId) ->
+            val cachedItem = getCachedItem(type, tmdbId)
+            if (cachedItem != null) {
+                itemsByRef[type to tmdbId] = cachedItem
+            } else {
+                missingRefs += (type to tmdbId)
+            }
+        }
+        val semaphore = Semaphore(2)
+        val jobs = missingRefs.map { (type, tmdbId) ->
             async {
                 semaphore.withPermit {
-                    runCatching {
+                    val item = runCatching {
                         when (type) {
                             MediaType.MOVIE -> getMovieDetails(tmdbId)
                             MediaType.TV -> getTvDetails(tmdbId)
                         }
                     }.getOrNull()
+                    if (item != null) {
+                        itemsByRef[type to tmdbId] = item
+                    }
                 }
             }
         }
-        val items = jobs.mapNotNull { it.await() }
+        jobs.forEach { it.await() }
+        val items = pageRefs.mapNotNull { itemsByRef[it] }
         if (items.isNotEmpty()) cacheItems(items)
         CategoryPageResult(items = items, hasMore = offset + pageRefs.size < refs.size)
     }
@@ -1475,22 +1698,58 @@ class MediaRepository @Inject constructor(
         val sortBy = source.sortBy ?: "popularity.desc"
         val mt = source.mediaType?.lowercase(Locale.US)
         when (mt) {
-            "movie" -> runCatching {
-                tmdbApi.discoverMovies(apiKey, keywords = keyword, sortBy = sortBy, language = contentLanguage, page = 1)
-            }.getOrNull()?.results?.map { MediaType.MOVIE to it.id }?.take(limit).orEmpty()
-            "series", "tv", "show" -> runCatching {
-                tmdbApi.discoverTv(apiKey, keywords = keyword, sortBy = sortBy, language = contentLanguage, page = 1)
-            }.getOrNull()?.results?.map { MediaType.TV to it.id }?.take(limit).orEmpty()
+            "movie" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.MOVIE,
+                limit = limit
+            ) { page ->
+                tmdbApi.discoverMovies(
+                    apiKey,
+                    keywords = keyword,
+                    sortBy = sortBy,
+                    language = contentLanguage,
+                    page = page
+                )
+            }
+            "series", "tv", "show" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.TV,
+                limit = limit
+            ) { page ->
+                tmdbApi.discoverTv(
+                    apiKey,
+                    keywords = keyword,
+                    sortBy = sortBy,
+                    language = contentLanguage,
+                    page = page
+                )
+            }
             else -> {
                 val moviesJob = async {
-                    runCatching {
-                        tmdbApi.discoverMovies(apiKey, keywords = keyword, sortBy = sortBy, language = contentLanguage, page = 1)
-                    }.getOrNull()?.results?.map { MediaType.MOVIE to it.id }.orEmpty()
+                    loadPagedTmdbDiscoverRefs(
+                        mediaType = MediaType.MOVIE,
+                        limit = limit
+                    ) { page ->
+                        tmdbApi.discoverMovies(
+                            apiKey,
+                            keywords = keyword,
+                            sortBy = sortBy,
+                            language = contentLanguage,
+                            page = page
+                        )
+                    }
                 }
                 val tvJob = async {
-                    runCatching {
-                        tmdbApi.discoverTv(apiKey, keywords = keyword, sortBy = sortBy, language = contentLanguage, page = 1)
-                    }.getOrNull()?.results?.map { MediaType.TV to it.id }.orEmpty()
+                    loadPagedTmdbDiscoverRefs(
+                        mediaType = MediaType.TV,
+                        limit = limit
+                    ) { page ->
+                        tmdbApi.discoverTv(
+                            apiKey,
+                            keywords = keyword,
+                            sortBy = sortBy,
+                            language = contentLanguage,
+                            page = page
+                        )
+                    }
                 }
                 (moviesJob.await() + tvJob.await()).take(limit)
             }
@@ -1511,30 +1770,32 @@ class MediaRepository @Inject constructor(
         val region = source.watchRegion?.takeIf { it.isNotBlank() } ?: "US"
         val sortBy = source.sortBy ?: "popularity.desc"
         return when (source.mediaType?.lowercase(Locale.US)) {
-            "movie" -> runCatching {
+            "movie" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.MOVIE,
+                limit = limit
+            ) { page ->
                 tmdbApi.discoverMovies(
                     apiKey,
                     watchProviders = providerId,
                     watchRegion = region,
                     sortBy = sortBy,
                     language = contentLanguage,
-                    page = 1
+                    page = page
                 )
-            }.getOrNull()?.results
-                ?.map { MediaType.MOVIE to it.id }
-                ?.take(limit).orEmpty()
-            "series", "tv", "show" -> runCatching {
+            }
+            "series", "tv", "show" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.TV,
+                limit = limit
+            ) { page ->
                 tmdbApi.discoverTv(
                     apiKey,
                     watchProviders = providerId,
                     watchRegion = region,
                     sortBy = sortBy,
                     language = contentLanguage,
-                    page = 1
+                    page = page
                 )
-            }.getOrNull()?.results
-                ?.map { MediaType.TV to it.id }
-                ?.take(limit).orEmpty()
+            }
             else -> emptyList()
         }
     }
@@ -1554,19 +1815,18 @@ class MediaRepository @Inject constructor(
         ) ?: return@coroutineScope emptyList()
 
         val response = runCatching {
-            streamRepository.getAddonCatalogPage(
-                addonId = addonId,
-                catalogType = catalogType,
-                catalogId = catalogId,
-                skip = offset.coerceAtLeast(0)
+            loadPagedAddonCollectionRefs(
+                descriptor = AddonCatalogDescriptor(
+                    addonId = addonId,
+                    catalogType = catalogType,
+                    catalogId = catalogId
+                ),
+                offset = offset,
+                limit = limit
             )
-        }.getOrNull() ?: return@coroutineScope emptyList()
+        }.getOrNull() ?: emptyList()
 
-        val metas = (response.metas ?: response.items ?: emptyList()).take(limit)
-        parseAddonPageRefs(
-            metas = metas,
-            descriptor = AddonCatalogDescriptor(addonId = addonId, catalogType = catalogType, catalogId = catalogId)
-        )
+        response
     }
 
     private suspend fun loadCollectionGenreRefs(
@@ -1576,10 +1836,30 @@ class MediaRepository @Inject constructor(
         val genreId = source.tmdbGenreId ?: return emptyList()
         val sortBy = source.sortBy ?: "popularity.desc"
         return when (source.mediaType?.lowercase(Locale.US)) {
-            "movie" -> tmdbApi.discoverMovies(apiKey, genres = genreId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
-                .results.map { MediaType.MOVIE to it.id }.take(limit)
-            "series", "tv", "show" -> tmdbApi.discoverTv(apiKey, genres = genreId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
-                .results.map { MediaType.TV to it.id }.take(limit)
+            "movie" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.MOVIE,
+                limit = limit
+            ) { page ->
+                tmdbApi.discoverMovies(
+                    apiKey,
+                    genres = genreId.toString(),
+                    sortBy = sortBy,
+                    language = contentLanguage,
+                    page = page
+                )
+            }
+            "series", "tv", "show" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.TV,
+                limit = limit
+            ) { page ->
+                tmdbApi.discoverTv(
+                    apiKey,
+                    genres = genreId.toString(),
+                    sortBy = sortBy,
+                    language = contentLanguage,
+                    page = page
+                )
+            }
             else -> emptyList()
         }
     }
@@ -1591,12 +1871,81 @@ class MediaRepository @Inject constructor(
         val personId = source.tmdbPersonId ?: return emptyList()
         val sortBy = source.sortBy ?: "popularity.desc"
         return when (source.mediaType?.lowercase(Locale.US)) {
-            "movie" -> tmdbApi.discoverMovies(apiKey, crew = personId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
-                .results.map { MediaType.MOVIE to it.id }.take(limit)
-            "series", "tv", "show" -> tmdbApi.discoverTv(apiKey, people = personId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
-                .results.map { MediaType.TV to it.id }.take(limit)
+            "movie" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.MOVIE,
+                limit = limit
+            ) { page ->
+                tmdbApi.discoverMovies(
+                    apiKey,
+                    crew = personId.toString(),
+                    sortBy = sortBy,
+                    language = contentLanguage,
+                    page = page
+                )
+            }
+            "series", "tv", "show" -> loadPagedTmdbDiscoverRefs(
+                mediaType = MediaType.TV,
+                limit = limit
+            ) { page ->
+                tmdbApi.discoverTv(
+                    apiKey,
+                    people = personId.toString(),
+                    sortBy = sortBy,
+                    language = contentLanguage,
+                    page = page
+                )
+            }
             else -> emptyList()
         }
+    }
+
+    private suspend fun loadPagedTmdbDiscoverRefs(
+        mediaType: MediaType,
+        limit: Int,
+        fetchPage: suspend (Int) -> TmdbListResponse
+    ): List<Pair<MediaType, Int>> {
+        if (limit <= 0) return emptyList()
+        val refs = LinkedHashSet<Pair<MediaType, Int>>()
+        var page = 1
+        var totalPages = 1
+        while (refs.size < limit && page <= totalPages) {
+            val response = runCatching { fetchPage(page) }.getOrNull() ?: break
+            response.results.forEach { refs.add(mediaType to it.id) }
+            totalPages = response.totalPages.coerceAtLeast(1)
+            if (response.results.isEmpty()) break
+            page += 1
+        }
+        return refs.take(limit)
+    }
+
+    private suspend fun loadPagedAddonCollectionRefs(
+        descriptor: AddonCatalogDescriptor,
+        offset: Int,
+        limit: Int
+    ): List<Pair<MediaType, Int>> {
+        if (limit <= 0) return emptyList()
+        val accumulated = LinkedHashSet<Pair<MediaType, Int>>()
+        var probeOffset = offset.coerceAtLeast(0)
+        var probes = 0
+        val maxProbes = 12
+        while (probes < maxProbes && accumulated.size < limit) {
+            val response = runCatching {
+                streamRepository.getAddonCatalogPage(
+                    addonId = descriptor.addonId,
+                    catalogType = descriptor.catalogType,
+                    catalogId = descriptor.catalogId,
+                    skip = probeOffset
+                )
+            }.getOrNull() ?: break
+            val metas = response.metas ?: response.items ?: emptyList()
+            if (metas.isEmpty()) break
+            parseAddonPageRefs(metas = metas, descriptor = descriptor)
+                .forEach { accumulated.add(it) }
+            probeOffset += metas.size
+            probes += 1
+            if (metas.size < 20) break
+        }
+        return accumulated.take(limit)
     }
 
     private data class AddonCatalogDescriptor(

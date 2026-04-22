@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -95,6 +96,8 @@ class TvViewModel @Inject constructor(
     private var warmVodJob: Job? = null
     private var pendingForcedReload: Boolean = false
     private var periodicEpgJob: Job? = null
+    private var lastObservedConfigSignature: String? = null
+    private var lastAutomaticEpgReloadAt: Long = 0L
 
     /**
      * In-memory cache of the live-TV enriched channel list + category tree.
@@ -142,7 +145,7 @@ class TvViewModel @Inject constructor(
                     // never block the TV page on EPG. Refresh what we have
                     // silently in the background so coverage grows over time
                     // without ever showing a loading screen to the user.
-                    val epgStale = !epgIsRecent || epgCoverage < 0.85f
+                    val epgStale = !epgIsRecent || epgCoverage < 0.92f
                     if (epgStale || iptvRepository.isSnapshotStale(cached)) {
                         refresh(force = false, showLoading = false, forceEpg = epgStale)
                     } else {
@@ -164,8 +167,14 @@ class TvViewModel @Inject constructor(
                 iptvRepository.observeGroupOrder()
             ) { triple, hiddenGroups, groupOrder ->
                 Triple(triple, hiddenGroups, groupOrder)
-            }.collect { (triple, hiddenGroups, groupOrder) ->
+            }
+                .distinctUntilChanged()
+                .collect { (triple, hiddenGroups, groupOrder) ->
                 val (config, favoriteGroups, favoriteChannels) = triple
+                val newConfigSignature = config.syncSignature()
+                val configChanged = lastObservedConfigSignature != null &&
+                    lastObservedConfigSignature != newConfigSignature
+                lastObservedConfigSignature = newConfigSignature
                 val snapshot = _uiState.value.snapshot.copy(
                     favoriteGroups = favoriteGroups,
                     favoriteChannels = favoriteChannels,
@@ -174,9 +183,17 @@ class TvViewModel @Inject constructor(
                 )
                 _uiState.value = _uiState.value.copy(config = config, snapshot = snapshot)
 
+                val hasAnyIptvConfig = config.m3uUrl.isNotBlank() ||
+                    config.stalkerPortalUrl.isNotBlank() ||
+                    config.playlists.any { it.enabled && it.m3uUrl.isNotBlank() }
+
                 // Auto-heal cases where the app has IPTV config but an empty in-memory snapshot.
-                if (config.m3uUrl.isNotBlank() && snapshot.channels.isEmpty() && refreshJob?.isActive != true) {
+                if (hasAnyIptvConfig && snapshot.channels.isEmpty() && refreshJob?.isActive != true) {
                     refresh(force = true, showLoading = true)
+                } else if (configChanged && refreshJob?.isActive != true) {
+                    cachedEnrichedChannels = null
+                    cachedChannelsSignature = null
+                    refresh(force = true, showLoading = false, forceEpg = true)
                 }
             }
         }
@@ -235,6 +252,8 @@ class TvViewModel @Inject constructor(
                 val lookup = withContext(Dispatchers.Default) {
                     snapshot.channels.associateBy { it.id }
                 }
+                cachedEnrichedChannels = null
+                cachedChannelsSignature = null
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = null,
@@ -284,7 +303,7 @@ class TvViewModel @Inject constructor(
         val config = _uiState.value.config
         val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
         if (!hasPotentialEpg) return
-        if (!forceRefresh && (snapshot.channels.isEmpty() || epgCoverageRatio(snapshot) >= 0.85f)) return
+        if (!forceRefresh && (snapshot.channels.isEmpty() || epgCoverageRatio(snapshot) >= 0.92f)) return
         if (epgRefreshJob?.isActive == true) return
 
         epgRefreshJob = viewModelScope.launch {
@@ -336,6 +355,21 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    private suspend fun refreshGuideFromCache() {
+        val channelIds = _uiState.value.snapshot.nowNext.keys
+        if (channelIds.isEmpty()) return
+        val updated = withContext(Dispatchers.Default) {
+            iptvRepository.reDeriveCachedNowNext(channelIds)
+        } ?: return
+        val current = _uiState.value
+        if (current.snapshot.nowNext.isEmpty()) return
+        _uiState.value = current.copy(
+            snapshot = current.snapshot.copy(
+                nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(updated) }
+            )
+        )
+    }
+
     private fun epgCoverageRatio(snapshot: IptvSnapshot): Float {
         if (snapshot.channels.isEmpty()) return 0f
         val covered = snapshot.channels.count { ch ->
@@ -348,14 +382,25 @@ class TvViewModel @Inject constructor(
     private fun startPeriodicEpgRefresh() {
         if (periodicEpgJob?.isActive == true) return
         periodicEpgJob = viewModelScope.launch {
-            // Shorter interval (2 min) — EPG coverage tends to grow as the
-            // provider serves more short_epg entries over time, and on a
-            // dropped request we want to retry quickly. Always silent.
             while (true) {
-                kotlinx.coroutines.delay(2 * 60 * 1000L)
+                kotlinx.coroutines.delay(60_000L)
                 val state = _uiState.value
                 if (state.isConfigured && state.snapshot.channels.isNotEmpty()) {
-                    refresh(force = false, showLoading = false, forceEpg = true)
+                    refreshGuideFromCache()
+                    val refreshedState = _uiState.value
+                    val epgAgeMs = iptvRepository.cachedEpgAgeMs()
+                    val epgCoverage = epgCoverageRatio(refreshedState.snapshot)
+                    val now = System.currentTimeMillis()
+                    val shouldReloadFromNetwork = !hasAnyEpgData(refreshedState.snapshot) ||
+                        epgCoverage < 0.92f ||
+                        epgAgeMs >= 5 * 60_000L
+                    if (shouldReloadFromNetwork &&
+                        refreshJob?.isActive != true &&
+                        now - lastAutomaticEpgReloadAt >= 5 * 60_000L
+                    ) {
+                        lastAutomaticEpgReloadAt = now
+                        refresh(force = false, showLoading = false, forceEpg = true)
+                    }
                 }
             }
         }
@@ -402,4 +447,25 @@ class TvViewModel @Inject constructor(
     private suspend fun syncIptvFavoritesToCloud() {
         runCatching { cloudSyncRepository.pushToCloud() }
     }
+}
+
+private fun IptvConfig.syncSignature(): String {
+    val playlistsSignature = playlists
+        .sortedBy { it.id }
+        .joinToString("|") { playlist ->
+            listOf(
+                playlist.id,
+                playlist.name,
+                playlist.m3uUrl,
+                playlist.epgUrl,
+                playlist.enabled.toString()
+            ).joinToString("~")
+        }
+    return listOf(
+        m3uUrl,
+        epgUrl,
+        stalkerPortalUrl,
+        stalkerMacAddress,
+        playlistsSignature
+    ).joinToString("||")
 }

@@ -47,6 +47,7 @@ import com.arflix.tv.data.model.IptvProgram
 fun MiniPlayerRow(
     exoPlayer: ExoPlayer,
     channel: EnrichedChannel?,
+    clockTickMillis: Long,
     nowNext: IptvNowNext?,
     favoriteSet: Set<String>,
     onFavoriteToggle: (String) -> Unit,
@@ -62,6 +63,7 @@ fun MiniPlayerRow(
         VideoCard(exoPlayer = exoPlayer, channel = channel)
         InfoColumn(
             channel = channel,
+            clockTickMillis = clockTickMillis,
             nowNext = nowNext,
             isFavorite = channel?.id?.let { it in favoriteSet } == true,
             onFavoriteToggle = onFavoriteToggle,
@@ -150,6 +152,7 @@ private fun LiveBug(modifier: Modifier = Modifier) {
 @Composable
 private fun InfoColumn(
     channel: EnrichedChannel?,
+    clockTickMillis: Long,
     nowNext: IptvNowNext?,
     isFavorite: Boolean,
     onFavoriteToggle: (String) -> Unit,
@@ -160,7 +163,7 @@ private fun InfoColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ChannelIdentityRow(channel = channel)
-        NowCard(channel = channel, nowNext = nowNext)
+        NowCard(channel = channel, clockTickMillis = clockTickMillis, nowNext = nowNext)
         NextRow(nowNext = nowNext)
     }
 }
@@ -243,7 +246,7 @@ private fun LangBadge(text: String) {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
+private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: IptvNowNext?) {
     val now = nowNext?.now
     Column(
         modifier = Modifier
@@ -285,7 +288,7 @@ private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        val progress = progressOf(now)
+        val progress = progressOf(now?.takeIf { clockTickMillis >= 0L })
         if (progress != null) {
             LinearProgressIndicator(
                 progress = { progress },

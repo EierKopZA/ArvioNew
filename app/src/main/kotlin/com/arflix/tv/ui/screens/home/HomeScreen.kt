@@ -115,6 +115,7 @@ import coil.request.ImageRequest
 import coil.size.Precision
 import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.network.OkHttpProvider
@@ -291,9 +292,9 @@ fun HomeScreen(
     // ViewModel's TMDB/Trakt refresh pushes don't drive recompositions behind
     // an invisible UI.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    // Performance: Directly collect StateFlow instead of syncing to mutableStateMapOf
-    // This avoids O(n) iteration on every logo cache update
-    val cardLogoUrls by viewModel.cardLogoUrls.collectAsStateWithLifecycle()
+    // Per-card logo reads now come from a stable snapshotStateMap so a single
+    // logo arriving no longer recomposes the full home surface.
+    val cardLogoUrls = viewModel.cardLogoUrls
     val profileCount = if (currentProfile != null) 1 else 0
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -431,7 +432,7 @@ fun HomeScreen(
                 if (categoriesSnapshot.isEmpty() || focusState.isSidebarFocused) return@collectLatest
                 val now = SystemClock.elapsedRealtime()
                 val isFastScrolling = now - focusState.lastNavEventTime < fastScrollThresholdMs
-                viewModel.onFocusChanged(rowIndex, itemIndex, shouldPrefetch = true)
+                viewModel.onFocusChanged(rowIndex, itemIndex, shouldPrefetch = !isFastScrolling)
                 delay(if (isFastScrolling) 700L else 220L)
 
                 val idleFor = SystemClock.elapsedRealtime() - focusState.lastNavEventTime
@@ -490,15 +491,10 @@ fun HomeScreen(
         ?.takeIf { isHeroCollection && collectionVideoFinishedId != it.id }
         ?.let { viewModel.getCollectionHeroVideoUrl(it) }
     val heroVideoUrl = when {
+        !isMobile && !focusState.userHasNavigated -> null
         isHeroIptv -> displayHeroItem?.let { viewModel.getIptvStreamUrl(it.id) }
         serviceHeroVideoUrl != null -> serviceHeroVideoUrl
         else -> null
-    }
-
-    // Warm details assets for the currently displayed hero item so selecting
-    // Details doesn't pause on the first clearlogo/episodes fetch.
-    LaunchedEffect(displayHeroItem?.id, displayHeroItem?.mediaType, displayHeroItem?.nextEpisode?.seasonNumber) {
-        displayHeroItem?.takeUnless { viewModel.isCollectionItem(it) }?.let { viewModel.prefetchDetailsAssets(it) }
     }
 
     val heroOkHttp = remember {
@@ -522,8 +518,10 @@ fun HomeScreen(
     }
     val heroExoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(8_000, 30_000, 1_500, 3_000)
+            .setBufferDurationsMs(2_000, 8_000, 750, 1_500)
+            .setTargetBufferBytes(12 * 1024 * 1024)
             .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(0, false)
             .build()
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(heroDefaultFactory)
@@ -588,7 +586,13 @@ fun HomeScreen(
             .fillMaxSize()
             .background(BackgroundDark)
       ) {
-        val currentBackdrop = displayHeroItem?.backdrop ?: displayHeroItem?.image
+        val currentBackdrop = displayHeroItem?.let { item ->
+            if (viewModel.isCollectionItem(item)) {
+                viewModel.getCollectionHeroImageUrl(item) ?: item.image
+            } else {
+                item.backdrop ?: item.image
+            }
+        }
         // On mobile, the hero backdrop is rendered inline inside MobileHomeRowsLayer — skip the fixed backdrop.
         // On TV, fill the entire screen with the backdrop.
         if (!isMobile) {
@@ -602,29 +606,23 @@ fun HomeScreen(
                     )
             )
 
-            Crossfade(
-                targetState = currentBackdrop,
-                animationSpec = tween(durationMillis = 320),
-                label = "hero_backdrop_crossfade"
-            ) { backdropUrl ->
-                if (backdropUrl != null) {
-                    val (backdropWidthPx, backdropHeightPx) = backdropSize
-                    val request = remember(backdropUrl, backdropWidthPx, backdropHeightPx) {
-                        ImageRequest.Builder(context)
-                            .data(backdropUrl)
-                            .size(backdropWidthPx, backdropHeightPx)
-                            .precision(Precision.INEXACT)
-                            .allowHardware(true)
-                            .crossfade(false)
-                            .build()
-                    }
-                    AsyncImage(
-                        model = request,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            if (currentBackdrop != null) {
+                val (backdropWidthPx, backdropHeightPx) = backdropSize
+                val request = remember(currentBackdrop, backdropWidthPx, backdropHeightPx) {
+                    ImageRequest.Builder(context)
+                        .data(currentBackdrop)
+                        .size(backdropWidthPx, backdropHeightPx)
+                        .precision(Precision.INEXACT)
+                        .allowHardware(true)
+                        .crossfade(false)
+                        .build()
                 }
+                AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             if (heroVideoUrl != null) {
@@ -644,7 +642,7 @@ fun HomeScreen(
             }
 
             // YouTube trailer auto-play (muted, no controls)
-            if (heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
+            if (isMobile && heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
                 TrailerPlayer(
                     youtubeKey = uiState.heroTrailerKey!!,
                     modifier = Modifier.fillMaxSize()
@@ -702,7 +700,7 @@ fun HomeScreen(
             profileCount = profileCount,
             clockFormat = uiState.clockFormat,
             syncStatus = uiState.syncStatus,
-            onItemFocusedPrefetch = { item -> if (!viewModel.isCollectionItem(item)) viewModel.prefetchDetailsAssets(item) },
+            onItemFocusedPrefetch = {},
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToCollection = onNavigateToCollection,
             onNavigateToSearch = onNavigateToSearch,
@@ -1239,16 +1237,18 @@ private fun HomeHeroLayer(
                 .zIndex(3f)
         ) {
             heroItem?.let { item ->
-                HeroSection(
-                    item = item,
-                    logoUrl = heroLogoUrl,
-                    overviewOverride = heroOverviewOverride,
-                    showBudget = showBudget,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = contentStartPadding, end = 400.dp)
-                        .offset(y = -heroBottomPadding)
+                if (!item.status.orEmpty().startsWith("collection:")) {
+                    HeroSection(
+                        item = item,
+                        logoUrl = heroLogoUrl,
+                        overviewOverride = heroOverviewOverride,
+                        showBudget = showBudget,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = contentStartPadding, end = 400.dp)
+                            .offset(y = -heroBottomPadding)
                     )
+                }
             }
         }
     }
@@ -2179,13 +2179,14 @@ private fun MobileHomeRowsLayer(
                                 modifier = Modifier.width(mobileItemWidth)
                             ) {
                                 val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
+                                val collectionLandscape = item.collectionTileShape != CollectionTileShape.POSTER
                                 ArvioMediaCard(
                                     item = item,
                                     width = mobileItemWidth,
-                                    isLandscape = if (isCollectionRow) true else !usePosterCards,
+                                    isLandscape = if (isCollectionRow) collectionLandscape else !usePosterCards,
                                     logoImageUrl = cardLogoUrl,
                                     showProgress = false,
-                                    showTitle = true,
+                                    showTitle = !item.collectionHideTitle,
                                     isFocusedOverride = false,
                                     enableSystemFocus = false,
                                     onFocused = {},
@@ -2204,13 +2205,14 @@ private fun MobileHomeRowsLayer(
                             }
                         } else {
                             val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
+                            val collectionLandscape = item.collectionTileShape != CollectionTileShape.POSTER
                             ArvioMediaCard(
                                 item = item,
                                 width = mobileItemWidth,
-                                isLandscape = if (isCollectionRow) true else !usePosterCards,
+                                isLandscape = if (isCollectionRow) collectionLandscape else !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = isContinueWatching,
-                                showTitle = true,
+                                showTitle = !item.collectionHideTitle,
                                 isFocusedOverride = false,
                                 enableSystemFocus = false,
                                 onFocused = {},
@@ -2295,12 +2297,7 @@ private fun TvHomeRowsLayer(
             val currentIndex = listState.firstVisibleItemIndex
             if (currentIndex == targetIndex) return@LaunchedEffect
 
-            val jumpDistance = kotlin.math.abs(targetIndex - currentIndex)
-            if (jumpDistance <= 1) {
-                listState.animateScrollToItem(index = targetIndex, scrollOffset = 0)
-            } else {
-                listState.scrollToItem(index = targetIndex, scrollOffset = 0)
-            }
+            listState.scrollToItem(index = targetIndex, scrollOffset = 0)
         }
         // Keep rows in the lower portion of the screen so hero metadata has dedicated space,
         // matching the separation used on Details.
@@ -2316,8 +2313,7 @@ private fun TvHomeRowsLayer(
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 modifier = Modifier
                     .fillMaxSize()
-                    .clipToBounds()
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+                    .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
             itemsIndexed(
@@ -2325,19 +2321,12 @@ private fun TvHomeRowsLayer(
                 key = { _, category -> category.id },
                 contentType = { _, _ -> "home_category_row" }
             ) { index, category ->
-                    val targetAlpha = if (index <= currentRowIndex) 1f else 0.25f
-                    val rowAlpha = androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = targetAlpha,
-                        animationSpec = tween(durationMillis = 300),
-                        label = "homeRowAlpha"
-                    ).value
                     val rowHeight = if (usePosterCards) 240.dp else 190.dp
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(rowHeight)
                             .clipToBounds()
-                            .graphicsLayer { alpha = rowAlpha }
                     ) {
                         ContentRow(
                             category = category,
@@ -2354,7 +2343,6 @@ private fun TvHomeRowsLayer(
                                 focusState.currentItemIndex = itemIdx
                                 focusState.isSidebarFocused = false
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                onItemFocusedPrefetch(item)
                             }
                         )
                     }
@@ -2520,7 +2508,11 @@ private fun ContentRow(
     // row spacing (which made the section layout feel loose), slightly reduce the
     // poster card width so the 1.05x focus zoom has more breathing room inside the
     // existing row spacing. ~5% smaller than before.
-    val effectivePosterMode = if (isCollectionRow) false else usePosterCards
+    val effectivePosterMode = if (isCollectionRow) {
+        category.items.firstOrNull()?.collectionTileShape == CollectionTileShape.POSTER
+    } else {
+        usePosterCards
+    }
     val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
@@ -2529,33 +2521,10 @@ private fun ContentRow(
         val itemSpanPx = with(density) { (itemWidth + itemSpacing).roundToPx() }.coerceAtLeast(1)
         max(1, availablePx / itemSpanPx)
     }
-    var baseVisibleCount by remember { mutableIntStateOf(0) }
-    // Performance: Use derivedStateOf to avoid recomposition on every scroll frame
-    val visibleCount by remember {
-        derivedStateOf { rowState.layoutInfo.visibleItemsInfo.size }
-    }
-    LaunchedEffect(visibleCount) {
-        if (visibleCount > 0 && baseVisibleCount == 0) {
-            baseVisibleCount = visibleCount
-        }
-    }
-    // Performance: Calculate itemsPerPage once based on fallback, avoid recalculating on scroll
-    val itemsPerPage = remember(fallbackItemsPerPage, baseVisibleCount) {
-        if (baseVisibleCount > 0) min(baseVisibleCount, fallbackItemsPerPage) else fallbackItemsPerPage
-    }
-    val rowFade = remember { Animatable(1f) }
-    var lastPageIndex by remember { mutableIntStateOf(0) }
+    val itemsPerPage = fallbackItemsPerPage
     val totalItems = category.items.size
-    // Performance: Use derivedStateOf to avoid recalculation on every frame
-    val effectiveVisibleCount by remember(totalItems, itemsPerPage) {
-        derivedStateOf {
-            val currentVisible = rowState.layoutInfo.visibleItemsInfo.size
-            if (currentVisible > 0) min(currentVisible, totalItems.coerceAtLeast(1)) else itemsPerPage
-        }
-    }
-    // Performance: Derive maxFirstIndex since effectiveVisibleCount is derived
-    val maxFirstIndex by remember(totalItems) {
-        derivedStateOf { (totalItems - effectiveVisibleCount).coerceAtLeast(0) }
+    val maxFirstIndex = remember(totalItems, itemsPerPage) {
+        (totalItems - itemsPerPage.coerceAtLeast(1)).coerceAtLeast(0)
     }
     val isScrollable = totalItems > itemsPerPage
     // Use rememberUpdatedState to ensure items recompose when focus changes
@@ -2610,10 +2579,7 @@ private fun ContentRow(
         if (isFastScrolling || extraOffset > 0 || jumpDistance > 1) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else if (scrollTargetIndex != currentFirstIndex || targetOutsideViewport) {
-            // Use the same animated path in both directions. Previously moving left,
-            // especially back to index 0, used an abrupt instant reset while moving
-            // right animated smoothly. That asymmetry made left navigation feel cheap.
-            rowState.animateScrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         }
@@ -2621,52 +2587,9 @@ private fun ContentRow(
         lastScrollOffset = extraOffset
     }
 
-    // Performance: Remove rowState from remember keys - derivedStateOf handles state tracking
-    val pageIndex by remember(itemsPerPage) {
-        derivedStateOf { rowState.firstVisibleItemIndex / itemsPerPage }
-    }
-
-    // Fade the next page in when scrolling between page groups.
-    LaunchedEffect(isCurrentRow) {
-        if (isCurrentRow) {
-            lastPageIndex = pageIndex
-        }
-    }
-
-    LaunchedEffect(pageIndex, isCurrentRow, isFastScrolling) {
-        if (!isCurrentRow) return@LaunchedEffect
-        if (isFastScrolling) {
-            if (rowFade.value < 0.999f) {
-                rowFade.snapTo(1f)
-            }
-            lastPageIndex = pageIndex
-            return@LaunchedEffect
-        }
-        if (pageIndex != lastPageIndex) {
-            lastPageIndex = pageIndex
-            rowFade.snapTo(0.8f)
-            rowFade.animateTo(1f, animationSpec = tween(durationMillis = 180))
-        }
-    }
-
-    // Animate row alpha and offset so non-focused rows dim/settle smoothly
-    // instead of snapping when focus moves between rows.
-    val rowAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isCurrentRow) 1f else 0.85f,
-        animationSpec = androidx.compose.animation.core.tween(200),
-        label = "row_alpha"
-    )
-    val rowOffsetY by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (isCurrentRow) 0.dp else 4.dp,
-        animationSpec = androidx.compose.animation.core.tween(200),
-        label = "row_offset"
-    )
-
     Column(
         modifier = Modifier
             .padding(bottom = 12.dp)
-            .offset(y = rowOffsetY)
-            .graphicsLayer { alpha = rowAlpha }
     ) {
         // Section title - clean white text, aligned with cards
         Text(
@@ -2677,11 +2600,6 @@ private fun ContentRow(
         )
 
         // Cards row - clipped to hide previous items when scrolling
-        val rowFadeModifier = if (rowFade.value < 0.999f) {
-            Modifier.graphicsLayer { alpha = rowFade.value }
-        } else {
-            Modifier
-        }
         val clipModifier = if (isContinueWatching) Modifier else Modifier.clipToBounds()
         Box(
             modifier = Modifier
@@ -2689,7 +2607,6 @@ private fun ContentRow(
                 .then(clipModifier)
         ) {
             LazyRow(
-                modifier = rowFadeModifier,
                 state = rowState,
                 contentPadding = PaddingValues(
                     start = startPadding,
@@ -2727,7 +2644,7 @@ private fun ContentRow(
                             isLandscape = !effectivePosterMode,
                             logoImageUrl = cardLogoUrl,
                             showProgress = false,
-                            showTitle = isCollectionRow,
+                            showTitle = isCollectionRow && !item.collectionHideTitle,
                             isFocusedOverride = itemIsFocused,
                             enableSystemFocus = false,
                             onFocused = { onItemFocused(item, index) },
@@ -2750,10 +2667,10 @@ private fun ContentRow(
                     ArvioMediaCard(
                         item = item,
                         width = itemWidth,
-                            isLandscape = !effectivePosterMode,
-                            logoImageUrl = cardLogoUrl,
-                            showProgress = isContinueWatching,
-                            showTitle = isCollectionRow,
+                        isLandscape = !effectivePosterMode,
+                        logoImageUrl = cardLogoUrl,
+                        showProgress = isContinueWatching,
+                        showTitle = isCollectionRow && !item.collectionHideTitle,
                         isFocusedOverride = itemIsFocused,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },

@@ -1,7 +1,6 @@
 package com.arflix.tv.ui.components
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -9,6 +8,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.arflix.tv.util.profilesDataStore
 import com.arflix.tv.util.settingsDataStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -55,6 +55,6 @@ fun rememberCardLayoutMode(): CardLayoutMode {
         }
             .distinctUntilChanged()
     }
-    val mode by modeFlow.collectAsState(initial = CardLayoutMode.LANDSCAPE)
+    val mode by modeFlow.collectAsStateWithLifecycle(initialValue = CardLayoutMode.LANDSCAPE)
     return mode
 }
