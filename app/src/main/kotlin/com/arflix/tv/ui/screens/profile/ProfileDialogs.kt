@@ -112,7 +112,9 @@ fun EditProfileDialog(
     onAvatarSelected: (Int) -> Unit = {},
     onConfirm: () -> Unit,
     onDelete: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onShowPinSetup: () -> Unit = {},
+    onRemovePin: () -> Unit = {}
 ) {
     ProfileDialogContent(
         title = "Edit Profile",
@@ -126,7 +128,10 @@ fun EditProfileDialog(
         confirmLabel = "Save",
         onConfirm = onConfirm,
         onDismiss = onDismiss,
-        onDelete = onDelete
+        onDelete = onDelete,
+        profile = profile,
+        onShowPinSetup = onShowPinSetup,
+        onRemovePin = onRemovePin
     )
 }
 
@@ -148,7 +153,10 @@ private fun ProfileDialogContent(
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    onDelete: (() -> Unit)?
+    onDelete: (() -> Unit)?,
+    profile: Profile? = null,
+    onShowPinSetup: (() -> Unit)? = null,
+    onRemovePin: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
@@ -321,6 +329,58 @@ private fun ProfileDialogContent(
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
+
+                    // PIN Controls (edit mode only)
+                    if (profile != null && onShowPinSetup != null && onRemovePin != null) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Profile Lock",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFB0B0B0),
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (profile.pin.isNullOrEmpty()) {
+                                    DialogButton(
+                                        text = "Set PIN",
+                                        isPrimary = false,
+                                        onClick = {
+                                            hideKeyboard()
+                                            onShowPinSetup()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    DialogButton(
+                                        text = "Change PIN",
+                                        isPrimary = false,
+                                        onClick = {
+                                            hideKeyboard()
+                                            onShowPinSetup()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    DialogButton(
+                                        text = "Remove PIN",
+                                        isPrimary = false,
+                                        onClick = {
+                                            hideKeyboard()
+                                            onRemovePin()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     // Buttons
                     Column(

@@ -39,7 +39,11 @@ data class ProfileUiState(
     // Toast state
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.SUCCESS,
-    val showToast: Boolean = false
+    val showToast: Boolean = false,
+    // PIN dialog state
+    val showPinDialog: Boolean = false,
+    val pinDialogMode: String = "", // "verify" or "setup"
+    val pendingProfileForPin: Profile? = null
 )
 
 @HiltViewModel
@@ -287,6 +291,66 @@ class ProfileViewModel @Inject constructor(
                 profileManager.setCurrentProfileId("default")
                 profileManager.setCurrentProfileName("default")
             }
+            runCatching { cloudSyncRepository.pushToCloud() }
+        }
+    }
+
+    // ========== PIN Management ==========
+
+    fun selectProfileWithLockCheck(profile: Profile) {
+        if (profile.isLocked && !profile.pin.isNullOrEmpty()) {
+            _uiState.value = _uiState.value.copy(
+                showPinDialog = true,
+                pinDialogMode = "verify",
+                pendingProfileForPin = profile
+            )
+        } else {
+            selectProfile(profile)
+        }
+    }
+
+    fun showPinSetupDialog() {
+        _uiState.value = _uiState.value.copy(
+            showPinDialog = true,
+            pinDialogMode = "setup"
+        )
+    }
+
+    fun hidePinDialog() {
+        _uiState.value = _uiState.value.copy(
+            showPinDialog = false,
+            pinDialogMode = "",
+            pendingProfileForPin = null
+        )
+    }
+
+    fun verifyPinAndSelectProfile(enteredPin: String) {
+        val profile = _uiState.value.pendingProfileForPin ?: return
+        if (profile.pin == enteredPin) {
+            hidePinDialog()
+            selectProfile(profile)
+        } else {
+            // PIN incorrect - just stay in dialog, will show error in PinEntryDialog
+        }
+    }
+
+    fun setupProfilePin(pin: String) {
+        val profile = _uiState.value.editingProfile ?: return
+        val updatedProfile = profile.copy(pin = pin, isLocked = true)
+        viewModelScope.launch {
+            profileRepository.updateProfile(updatedProfile)
+            _uiState.value = _uiState.value.copy(editingProfile = updatedProfile)
+            hidePinDialog()
+            runCatching { cloudSyncRepository.pushToCloud() }
+        }
+    }
+
+    fun removeProfilePin() {
+        val profile = _uiState.value.editingProfile ?: return
+        val updatedProfile = profile.copy(pin = null, isLocked = false)
+        viewModelScope.launch {
+            profileRepository.updateProfile(updatedProfile)
+            _uiState.value = _uiState.value.copy(editingProfile = updatedProfile)
             runCatching { cloudSyncRepository.pushToCloud() }
         }
     }

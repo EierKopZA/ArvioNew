@@ -202,8 +202,12 @@ fun ProfileSelectionScreen(
                                 if (uiState.isManageMode) {
                                     viewModel.showEditDialog(profile)
                                 } else {
-                                    navigateTriggered = true
-                                    viewModel.selectProfile(profile)
+                                    if (uiState.activeProfile?.id == profile.id) {
+                                        onProfileSelected()
+                                    } else {
+                                        navigateTriggered = true
+                                        viewModel.selectProfileWithLockCheck(profile)
+                                    }
                                 }
                             },
                             onFocus = { viewModel.preloadForProfile(profile) },
@@ -242,8 +246,12 @@ fun ProfileSelectionScreen(
                                 if (uiState.isManageMode) {
                                     viewModel.showEditDialog(profile)
                                 } else {
-                                    navigateTriggered = true
-                                    viewModel.selectProfile(profile)
+                                    if (uiState.activeProfile?.id == profile.id) {
+                                        onProfileSelected()
+                                    } else {
+                                        navigateTriggered = true
+                                        viewModel.selectProfileWithLockCheck(profile)
+                                    }
                                 }
                             },
                             onFocus = { viewModel.preloadForProfile(profile) },
@@ -328,7 +336,9 @@ fun ProfileSelectionScreen(
                 onAvatarSelected = { viewModel.setSelectedAvatarId(it) },
                 onConfirm = { viewModel.updateProfile() },
                 onDelete = { viewModel.deleteProfile(profile); viewModel.hideEditDialog() },
-                onDismiss = { viewModel.hideEditDialog() }
+                onDismiss = { viewModel.hideEditDialog() },
+                onShowPinSetup = { viewModel.showPinSetupDialog() },
+                onRemovePin = { viewModel.removeProfilePin() }
             )
         }
 
@@ -339,6 +349,25 @@ fun ProfileSelectionScreen(
             isVisible = uiState.showToast,
             onDismiss = { viewModel.dismissToast() }
         )
+
+        // PIN Entry Dialog
+        if (uiState.showPinDialog) {
+            if (uiState.pinDialogMode == "verify") {
+                PinEntryDialog(
+                    title = "Enter PIN to unlock",
+                    onPinConfirmed = { pin -> viewModel.verifyPinAndSelectProfile(pin) },
+                    onDismiss = { viewModel.hidePinDialog() },
+                    isSetup = false
+                )
+            } else if (uiState.pinDialogMode == "setup") {
+                PinEntryDialog(
+                    title = "Set Profile PIN",
+                    onPinConfirmed = { pin -> viewModel.setupProfilePin(pin) },
+                    onDismiss = { viewModel.hidePinDialog() },
+                    isSetup = true
+                )
+            }
+        }
     }
 }
 
