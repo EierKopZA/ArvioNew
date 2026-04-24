@@ -108,6 +108,7 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
+import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.model.RuntimeKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
@@ -278,12 +279,12 @@ fun SettingsScreen(
     }
     val sectionMaxIndex: (String) -> Int = { section ->
         when (section) {
-            "general" -> 16 // 17 rows
+            "general" -> 17 // 18 rows
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "catalogs" -> uiState.catalogs.size // Add + rows
             "stremio" -> stremioAddons.size // rows + add button
             "cloudstream" -> cloudstreamPlugins.size + uiState.cloudstreamRepositories.size // plugins + repos + add button
-            "accounts" -> 2 // Cloud + Trakt + App Update
+            "accounts" -> 3 // Cloud + Trakt + Force Sync + App Update
             else -> 0
         }
     }
@@ -514,8 +515,8 @@ fun SettingsScreen(
                     val focusedStremioAddon = stremioAddons.getOrNull(contentFocusIndex)
                     val repoOffset = (contentFocusIndex - cloudstreamPlugins.size).takeIf { it >= 0 } ?: -1
                     val focusedCloudstreamRepo = uiState.cloudstreamRepositories.getOrNull(repoOffset)
-                    val focusedStremioAddonCanDelete = focusedStremioAddon?.let {
-                        !(it.id == "opensubtitles" && it.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
+                    val focusedStremioAddonCanDelete = focusedStremioAddon?.let { addon ->
+                        !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
                     } ?: false
                     when (event.key) {
                         Key.Back, Key.Escape -> {
@@ -683,13 +684,14 @@ fun SettingsScreen(
                                                 7 -> viewModel.cycleAutoPlayMinQuality()
                                                 8 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
                                                 9 -> viewModel.cycleFrameRateMatchingMode()
-                                                10 -> viewModel.toggleCardLayoutMode()
-                                                11 -> openUiModeWarningDialog()
-                                                12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                13 -> viewModel.cycleClockFormat()
-                                                14 -> viewModel.setShowBudget(!uiState.showBudget)
-                                                15 -> openDnsProviderPicker()
-                                                16 -> viewModel.cycleVolumeBoost()
+                                                10 -> viewModel.cycleQualityFilterPreset()
+                                                11 -> viewModel.toggleCardLayoutMode()
+                                                12 -> openUiModeWarningDialog()
+                                                13 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
+                                                14 -> viewModel.cycleClockFormat()
+                                                15 -> viewModel.setShowBudget(!uiState.showBudget)
+                                                16 -> openDnsProviderPicker()
+                                                17 -> viewModel.cycleVolumeBoost()
                                             }
                                         }
                                         "iptv" -> {
@@ -832,6 +834,9 @@ fun SettingsScreen(
                                                     }
                                                 }
                                                 2 -> {
+                                                    viewModel.forceCloudSyncNow()
+                                                }
+                                                3 -> {
                                                     if (uiState.downloadedApkPath != null) {
                                                         viewModel.installAppUpdateOrRequestPermission()
                                                     } else {
@@ -897,7 +902,9 @@ fun SettingsScreen(
                             onClockFormatClick = { viewModel.cycleClockFormat() },
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
-                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
+                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
+                            qualityFilterValue = uiState.qualityFilterPresetLabel,
+                            onQualityFiltersClick = { viewModel.cycleQualityFilterPreset() }
                         )
                         "iptv" -> IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -994,6 +1001,7 @@ fun SettingsScreen(
                             onConnectTrakt = { viewModel.startTraktAuth() },
                             onCancelTrakt = { viewModel.cancelTraktAuth() },
                             onDisconnectTrakt = { viewModel.disconnectTrakt() },
+                            onForceCloudSync = { viewModel.forceCloudSyncNow() },
                             onSwitchProfile = onSwitchProfile,
                             onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
@@ -1128,7 +1136,9 @@ fun SettingsScreen(
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
-                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
+                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
+                            qualityFilterValue = uiState.qualityFilterPresetLabel,
+                            onQualityFiltersClick = { viewModel.cycleQualityFilterPreset() }
                         )
                         "iptv" -> IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -1231,6 +1241,7 @@ fun SettingsScreen(
                             onConnectTrakt = { viewModel.startTraktAuth() },
                             onCancelTrakt = { viewModel.cancelTraktAuth() },
                             onDisconnectTrakt = { viewModel.disconnectTrakt() },
+                            onForceCloudSync = { viewModel.forceCloudSyncNow() },
                             onSwitchProfile = onSwitchProfile,
                             onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
@@ -1261,6 +1272,7 @@ fun SettingsScreen(
                 }
             )
         }
+
 
         if (showCloudstreamRepoInput) {
             InputModal(
@@ -1297,7 +1309,6 @@ fun SettingsScreen(
                 onDismiss = { viewModel.dismissCloudstreamPluginPicker() }
             )
         }
-
         if (showIptvInput) {
             InputModal(
                 title = if (editingIptvIndex >= 0) "Edit IPTV Playlist" else "Add IPTV Playlist",
@@ -1575,6 +1586,149 @@ private fun ModalScrim(
                 onClick = {}
             ),
             content = content
+        )
+    }
+}
+
+@Composable
+private fun QualityFiltersModal(
+    filters: List<QualityFilterConfig>,
+    onDismiss: () -> Unit,
+    onAdd: () -> Unit,
+    onToggle: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    focusedFilterIndex: Int = -1,
+    onFocusedFilterIndexChange: (Int) -> Unit = {},
+    focusedActionIndex: Int = -1,
+    onFocusedActionIndexChange: (Int) -> Unit = {}
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        ModalScrim(onDismiss = onDismiss) {
+            Column(
+                modifier = Modifier
+                    .width(760.dp)
+                    .heightIn(max = 760.dp)
+                    .background(BackgroundElevated, RoundedCornerShape(16.dp))
+                    .padding(24.dp)
+            ) {
+                Text(
+                    text = "Quality Regex Filters",
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Device-local filters. Matching streams are excluded.",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (filters.isEmpty()) {
+                    Text(
+                        text = "No filters configured yet.",
+                        style = ArflixTypography.body,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 460.dp)
+                    ) {
+                        itemsIndexed(filters) { index, filter ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = filter.deviceName.ifBlank { "Unnamed Device" },
+                                        style = ArflixTypography.body,
+                                        color = TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = filter.regexPattern,
+                                        style = ArflixTypography.caption,
+                                        color = TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                CatalogActionChip(
+                                    icon = if (filter.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
+                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 0,
+                                    onClick = { onToggle(filter.id) }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                CatalogActionChip(
+                                    icon = Icons.Default.Delete,
+                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 1,
+                                    isDestructive = true,
+                                    onClick = { onDelete(filter.id) }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SettingsChip(
+                        label = "Close",
+                        enabled = true,
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SettingsChip(
+                        label = "Add Filter",
+                        enabled = true,
+                        onClick = onAdd,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsChip(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (enabled) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = ArflixTypography.button,
+            color = if (enabled) TextPrimary else TextSecondary
         )
     }
 }
@@ -2552,7 +2706,9 @@ private fun GeneralSettings(
     trailerAutoPlay: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
-    onTrailerAutoPlayToggle: (Boolean) -> Unit = {}
+    onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
+    qualityFilterValue: String = "OFF",
+    onQualityFiltersClick: () -> Unit = {}
 ) {
     Column {
         // ── Language & Subtitles ──
@@ -2668,6 +2824,16 @@ private fun GeneralSettings(
             onClick = onFrameRateMatchingClick,
             modifier = Modifier.settingsFocusSlot(9)
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.HighQuality,
+            title = "Quality Regex Filters",
+            subtitle = "Exclude quality tiers on this device",
+            value = qualityFilterValue,
+            isFocused = focusedIndex == 10,
+            onClick = onQualityFiltersClick,
+            modifier = Modifier.settingsFocusSlot(10)
+        )
 
         // ── Interface ──
         Spacer(modifier = Modifier.height(24.dp))
@@ -2683,9 +2849,9 @@ private fun GeneralSettings(
             title = "Card Layout",
             subtitle = "Landscape or poster cards",
             value = cardLayoutMode,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle,
-            modifier = Modifier.settingsFocusSlot(10)
+            modifier = Modifier.settingsFocusSlot(11)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2698,18 +2864,18 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onClick = onDeviceModeClick,
-            modifier = Modifier.settingsFocusSlot(11)
+            modifier = Modifier.settingsFocusSlot(12)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = "Skip Profile Selection",
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle,
-            modifier = Modifier.settingsFocusSlot(12)
+            modifier = Modifier.settingsFocusSlot(13)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2717,9 +2883,9 @@ private fun GeneralSettings(
             title = "Clock Format",
             subtitle = "Choose 12-hour or 24-hour time",
             value = if (clockFormat == "12h") "12-hour" else "24-hour",
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onClockFormatClick,
-            modifier = Modifier.settingsFocusSlot(13)
+            modifier = Modifier.settingsFocusSlot(14)
         )
         Spacer(modifier = Modifier.height(10.dp))
         // Home hero controls — issue #72. The movie Budget line on the hero banner
@@ -2728,9 +2894,9 @@ private fun GeneralSettings(
             title = "Show Budget on Home",
             subtitle = "Display the movie budget on the home hero banner",
             isEnabled = showBudget,
-            isFocused = focusedIndex == 14,
+            isFocused = focusedIndex == 15,
             onToggle = onShowBudgetToggle,
-            modifier = Modifier.settingsFocusSlot(14)
+            modifier = Modifier.settingsFocusSlot(15)
         )
 
         // ── Network ──
@@ -2747,9 +2913,9 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 15,
+            isFocused = focusedIndex == 16,
             onClick = onDnsProviderClick,
-            modifier = Modifier.settingsFocusSlot(15)
+            modifier = Modifier.settingsFocusSlot(16)
         )
 
         // ── Audio ──
@@ -2769,9 +2935,9 @@ private fun GeneralSettings(
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
             },
-            isFocused = focusedIndex == 16,
+            isFocused = focusedIndex == 17,
             onClick = onVolumeBoostClick,
-            modifier = Modifier.settingsFocusSlot(16)
+            modifier = Modifier.settingsFocusSlot(17)
         )
     }
 }
@@ -4188,6 +4354,7 @@ private fun AccountsSettings(
     onConnectTrakt: () -> Unit,
     onCancelTrakt: () -> Unit,
     onDisconnectTrakt: () -> Unit,
+    onForceCloudSync: () -> Unit,
     onSwitchProfile: () -> Unit,
     onCheckUpdates: () -> Unit,
     onInstallUpdate: () -> Unit
@@ -4236,6 +4403,21 @@ private fun AccountsSettings(
         Spacer(modifier = Modifier.height(16.dp))
 
         SettingsActionRow(
+            title = "Force Cloud Sync",
+            description = if (isCloudAuthenticated) {
+                "Upload local state, then restore from cloud now"
+            } else {
+                "Sign in to ARVIO Cloud to force sync"
+            },
+            actionLabel = "SYNC",
+            isFocused = focusedIndex == 2,
+            onClick = { onForceCloudSync() },
+            modifier = Modifier.settingsFocusSlot(2)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsActionRow(
             title = "App Updates",
             description = when {
                 !isSelfUpdateSupported -> "This install is managed by the Play Store"
@@ -4252,11 +4434,11 @@ private fun AccountsSettings(
                 isAppUpdateAvailable -> "UPDATE"
                 else -> "CHECK"
             },
-            isFocused = focusedIndex == 2,
+            isFocused = focusedIndex == 3,
             onClick = {
                 if (downloadedApkPath != null) onInstallUpdate() else onCheckUpdates()
             },
-            modifier = Modifier.settingsFocusSlot(2)
+            modifier = Modifier.settingsFocusSlot(3)
         )
     }
 }

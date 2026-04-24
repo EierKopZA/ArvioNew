@@ -5,6 +5,7 @@ import coil.Coil
 import com.arflix.tv.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.api.TraktDeviceCode
@@ -14,6 +15,7 @@ import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
 import com.arflix.tv.data.model.Profile
+import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CatalogRepository
@@ -150,6 +152,8 @@ data class SettingsUiState(
     // Skip profile selection
     val skipProfileSelection: Boolean = false,
     val clockFormat: String = "24h",
+    val qualityFilters: List<QualityFilterConfig> = emptyList(),
+    val qualityFilterPresetLabel: String = "OFF",
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -217,6 +221,7 @@ class SettingsViewModel @Inject constructor(
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
     private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
+    private val qualityFiltersKey = stringPreferencesKey("quality_filters")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
@@ -240,6 +245,42 @@ class SettingsViewModel @Inject constructor(
         RESTORED,
         NO_BACKUP,
         FAILED
+    }
+
+    private enum class QualityFilterPreset(
+        val label: String,
+        val filterId: String?,
+        val regexPattern: String?
+    ) {
+        OFF(label = "OFF", filterId = null, regexPattern = null),
+        HD_1080_PLUS(
+            label = "1080p+",
+            filterId = "preset_quality_1080_plus",
+            regexPattern = "(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+        ),
+        HD_1080_ONLY(
+            label = "1080p only",
+            filterId = "preset_quality_1080_only",
+            regexPattern = "(?:2160|4k|uhd)|(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+        ),
+        HD_720_PLUS(
+            label = "720p+",
+            filterId = "preset_quality_720_plus",
+            regexPattern = "(?:360|480|576)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+        ),
+        CUSTOM(label = "CUSTOM", filterId = null, regexPattern = null);
+
+        fun toFilters(): List<QualityFilterConfig> {
+            if (this == OFF || this == CUSTOM || filterId == null || regexPattern == null) return emptyList()
+            return listOf(
+                QualityFilterConfig(
+                    id = filterId,
+                    deviceName = "Preset: $label",
+                    regexPattern = regexPattern,
+                    enabled = true
+                )
+            )
+        }
     }
 
     init {
@@ -309,6 +350,17 @@ class SettingsViewModel @Inject constructor(
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
             val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey()])
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
+            val qualityFilters = runCatching {
+                val json = prefs[qualityFiltersKey].orEmpty()
+                if (json.isBlank()) {
+                    emptyList()
+                } else {
+                    gson.fromJson<List<QualityFilterConfig>>(
+                        json,
+                        object : TypeToken<List<QualityFilterConfig>>() {}.type
+                    ).orEmpty()
+                }
+            }.getOrDefault(emptyList())
 
             // Check auth statuses
             val authState = authRepository.authState.first()
@@ -374,7 +426,9 @@ class SettingsViewModel @Inject constructor(
                 contentLanguage = contentLang,
                 deviceModeOverride = deviceModeOverride,
                 skipProfileSelection = skipProfileSelection,
-                clockFormat = clockFormat
+                clockFormat = clockFormat,
+                qualityFilters = qualityFilters,
+                qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label
             )
         }
     }
@@ -960,7 +1014,80 @@ class SettingsViewModel @Inject constructor(
             syncLocalStateToCloud(silent = true)
         }
     }
-    
+
+    fun addQualityFilter(deviceName: String, regexPattern: String) {
+        val trimmedRegex = regexPattern.trim()
+        if (trimmedRegex.isBlank()) return
+        if (runCatching { Regex(trimmedRegex) }.isFailure) return
+
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters + QualityFilterConfig(
+                id = java.util.UUID.randomUUID().toString(),
+                deviceName = deviceName.trim(),
+                regexPattern = trimmedRegex,
+                enabled = true
+            )
+            saveQualityFilters(next)
+        }
+    }
+
+    fun cycleQualityFilterPreset() {
+        viewModelScope.launch {
+            val currentPreset = detectQualityFilterPreset(_uiState.value.qualityFilters)
+            val nextPreset = when (currentPreset) {
+                QualityFilterPreset.OFF,
+                QualityFilterPreset.CUSTOM -> QualityFilterPreset.HD_1080_PLUS
+                QualityFilterPreset.HD_1080_PLUS -> QualityFilterPreset.HD_1080_ONLY
+                QualityFilterPreset.HD_1080_ONLY -> QualityFilterPreset.HD_720_PLUS
+                QualityFilterPreset.HD_720_PLUS -> QualityFilterPreset.OFF
+            }
+            saveQualityFilters(nextPreset.toFilters())
+        }
+    }
+
+    fun toggleQualityFilter(filterId: String) {
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters.map { filter ->
+                if (filter.id == filterId) filter.copy(enabled = !filter.enabled) else filter
+            }
+            saveQualityFilters(next)
+        }
+    }
+
+    fun deleteQualityFilter(filterId: String) {
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters.filterNot { it.id == filterId }
+            saveQualityFilters(next)
+        }
+    }
+
+    private suspend fun saveQualityFilters(filters: List<QualityFilterConfig>) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[qualityFiltersKey] = gson.toJson(filters)
+        }
+        // Device-scoped capability filter: intentionally local and not cloud-synced.
+        _uiState.value = _uiState.value.copy(
+            qualityFilters = filters,
+            qualityFilterPresetLabel = detectQualityFilterPreset(filters).label
+        )
+        // Update in-memory cache in StreamRepository to avoid DataStore reads in hot path
+        streamRepository.updateQualityFiltersCache(filters)
+    }
+
+    private fun detectQualityFilterPreset(filters: List<QualityFilterConfig>): QualityFilterPreset {
+        val enabled = filters.filter { it.enabled && it.regexPattern.isNotBlank() }
+        if (enabled.isEmpty()) return QualityFilterPreset.OFF
+        if (enabled.size != 1) return QualityFilterPreset.CUSTOM
+
+        val single = enabled.first()
+        return QualityFilterPreset.entries.firstOrNull { preset ->
+            preset != QualityFilterPreset.OFF &&
+                preset != QualityFilterPreset.CUSTOM &&
+                preset.filterId == single.id &&
+                preset.regexPattern == single.regexPattern
+        } ?: QualityFilterPreset.CUSTOM
+    }
+
     // ========== Addon Management ==========
     
     fun toggleAddon(addonId: String) {
@@ -1647,6 +1774,16 @@ class SettingsViewModel @Inject constructor(
 
                         val tokenImport = authRepository.signInWithSessionTokens(access, refresh)
                         if (tokenImport.isSuccess) {
+                            // TV auth previously stopped at token import, relying only on
+                            // auth-state observation for restore. On slower networks/session
+                            // propagation this could fail once and never retry, leaving a
+                            // freshly signed-in device with empty addons/settings/CW.
+                            var restoreResult = restoreCloudStateToLocalInternal(silent = true)
+                            if (restoreResult == CloudRestoreResult.FAILED) {
+                                delay(1200)
+                                restoreResult = restoreCloudStateToLocalInternal(silent = true)
+                            }
+
                             clearCloudAuthSession(cancelPolling = false)
                             pendingProfileSwitchAfterCloudLogin = true
                             _uiState.value = _uiState.value.copy(
@@ -1655,8 +1792,15 @@ class SettingsViewModel @Inject constructor(
                                 showCloudEmailPasswordDialog = false,
                                 cloudUserCode = null,
                                 cloudVerificationUrl = null,
-                                toastMessage = "Signed in successfully",
-                                toastType = ToastType.SUCCESS
+                                toastMessage = when (restoreResult) {
+                                    CloudRestoreResult.RESTORED -> "Signed in and restored from cloud"
+                                    CloudRestoreResult.NO_BACKUP -> "Signed in successfully"
+                                    CloudRestoreResult.FAILED -> "Signed in, but cloud restore failed"
+                                },
+                                toastType = when (restoreResult) {
+                                    CloudRestoreResult.FAILED -> ToastType.ERROR
+                                    else -> ToastType.SUCCESS
+                                }
                             )
                             return@launch
                         } else {
@@ -1777,6 +1921,59 @@ class SettingsViewModel @Inject constructor(
         if (!_uiState.value.isLoggedIn) return
         viewModelScope.launch {
             restoreCloudStateToLocalInternal(silent = silent)
+        }
+    }
+
+    fun forceCloudSyncNow() {
+        if (!_uiState.value.isLoggedIn || authRepository.getCurrentUserId().isNullOrBlank()) {
+            _uiState.value = _uiState.value.copy(
+                toastMessage = "Sign in to ARVIO Cloud first",
+                toastType = ToastType.INFO
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                toastMessage = "Forcing cloud sync...",
+                toastType = ToastType.INFO
+            )
+
+            // Push local state first, then pull remote state so this device ends
+            // with the server-authoritative snapshot after upload.
+            var pushResult = cloudSyncRepository.pushToCloud()
+            if (pushResult.isFailure) {
+                delay(1200)
+                pushResult = cloudSyncRepository.pushToCloud()
+            }
+            if (pushResult.isFailure) {
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = pushResult.exceptionOrNull()?.message ?: "Cloud sync failed while uploading",
+                    toastType = ToastType.ERROR
+                )
+                return@launch
+            }
+
+            val restoreResult = restoreCloudStateToLocalInternal(silent = true)
+            if (restoreResult == CloudRestoreResult.FAILED) {
+                delay(1200)
+            }
+            val finalRestoreResult = if (restoreResult == CloudRestoreResult.FAILED) {
+                restoreCloudStateToLocalInternal(silent = true)
+            } else restoreResult
+
+            _uiState.value = _uiState.value.copy(
+                toastMessage = when (finalRestoreResult) {
+                    CloudRestoreResult.RESTORED -> "Cloud sync complete"
+                    CloudRestoreResult.NO_BACKUP -> "Cloud sync complete (no backup to restore)"
+                    CloudRestoreResult.FAILED -> "Upload complete, but restore failed"
+                },
+                toastType = if (finalRestoreResult == CloudRestoreResult.FAILED) {
+                    ToastType.ERROR
+                } else {
+                    ToastType.SUCCESS
+                }
+            )
         }
     }
 
