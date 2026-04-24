@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +28,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed as standardItemsIndexed
@@ -78,6 +81,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -87,6 +92,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.lazy.list.TvLazyColumn
@@ -986,6 +992,8 @@ private fun DetailsContent(
         val screenHeightDp = configuration.screenHeightDp.dp
         val backdropHeight = (screenHeightDp * 0.53f).coerceAtLeast(400.dp)
         val mobileScrollState = rememberScrollState()
+        val density = LocalDensity.current
+        var stickyThreshold by remember { mutableStateOf(-1f) }
 
         val genreText = genres.take(2).joinToString(" / ").ifBlank {
             if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
@@ -1015,6 +1023,7 @@ private fun DetailsContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(backdropHeight)
+                        .zIndex(10f)
                 ) {
                     AsyncImage(
                         model = item.backdrop ?: item.image,
@@ -1045,30 +1054,58 @@ private fun DetailsContent(
                             .padding(start = 24.dp, end = 24.dp, bottom = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        if (logoUrl != null) {
-                            AsyncImage(
-                                model = logoUrl,
-                                contentDescription = item.title,
-                                contentScale = ContentScale.Fit,
-                                alignment = Alignment.Center,
-                                modifier = Modifier
-                                    .fillMaxWidth(0.78f)
-                                    .height(86.dp)
-                            )
-                        } else {
-                            Text(
-                                text = item.title,
-                                style = ArflixTypography.heroTitle.copy(
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Black,
-                                    shadow = textShadow
-                                ),
-                                color = Color.White,
-                                textAlign = TextAlign.Center,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(0.82f)
-                            )
+                        val statusBarsTop = WindowInsets.statusBars.getTop(density)
+                        Box(
+                            modifier = Modifier
+                                .zIndex(11f)
+                                .onGloballyPositioned { coords ->
+                                    if (stickyThreshold < 0f) {
+                                        // Un-scrolled Y coordinate protects against recompositions during scroll
+                                        val initialY = coords.positionInWindow().y + mobileScrollState.value
+                                        // Pinned Y: negative padding compensates for scaling-from-center so it aligns with back button
+                                        val pinnedY = statusBarsTop - with(density) { 12.dp.toPx() }
+                                        stickyThreshold = initialY - pinnedY
+                                    }
+                                }
+                                .graphicsLayer {
+                                    if (stickyThreshold >= 0f && mobileScrollState.value > stickyThreshold) {
+                                        val overscroll = mobileScrollState.value - stickyThreshold
+                                        translationY = overscroll
+                                        
+                                        // Smooth scale down to feel like a header
+                                        val maxOverscroll = 200f
+                                        val progress = (overscroll / maxOverscroll).coerceIn(0f, 1f)
+                                        val scale = 1f - (0.28f * progress) 
+                                        scaleX = scale
+                                        scaleY = scale
+                                    }
+                                }
+                        ) {
+                            if (logoUrl != null) {
+                                AsyncImage(
+                                    model = logoUrl,
+                                    contentDescription = item.title,
+                                    contentScale = ContentScale.Fit,
+                                    alignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.78f)
+                                        .height(86.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = item.title,
+                                    style = ArflixTypography.heroTitle.copy(
+                                        fontSize = 28.sp,
+                                        fontWeight = FontWeight.Black,
+                                        shadow = textShadow
+                                    ),
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth(0.82f)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -1404,7 +1441,7 @@ private fun DetailsContent(
             // when the system nav bar auto-hides. Issue #43.
             com.arflix.tv.ui.components.MobileBackButton(
                 onBack = onBack,
-                modifier = Modifier.align(Alignment.TopStart)
+                modifier = Modifier.align(Alignment.TopStart).statusBarsPadding()
             )
         }
         return
