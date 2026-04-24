@@ -3065,7 +3065,8 @@ private fun TmdbMovieDetails.toMediaItem(): MediaItem {
             ?: "",
         backdrop = backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
         originalLanguage = originalLanguage,
-        budget = budget
+        budget = budget,
+        genreIds = genres.map { it.id }
     )
 }
 
@@ -3092,7 +3093,8 @@ private fun TmdbTvDetails.toMediaItem(): MediaItem {
         originalLanguage = originalLanguage,
         isOngoing = status == "Returning Series",
         totalEpisodes = numberOfSeasons,
-        status = status
+        status = status,
+        genreIds = genres.map { it.id }
     )
 }
 
