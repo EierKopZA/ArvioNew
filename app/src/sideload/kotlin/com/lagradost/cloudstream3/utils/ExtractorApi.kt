@@ -532,7 +532,7 @@ suspend fun newExtractorLink(
     source: String,
     name: String,
     url: String,
-    type: ExtractorLinkType = ExtractorLinkType.VIDEO,
+    type: ExtractorLinkType? = null,
     initializer: suspend ExtractorLink.() -> Unit = {}
 ): ExtractorLink {
     val link = ExtractorLink(
@@ -541,7 +541,7 @@ suspend fun newExtractorLink(
         url = url,
         referer = "",
         quality = Qualities.Unknown.value,
-        type = type,
+        type = type ?: inferTypeFromUrl(url),
         headers = mapOf(),
         extractorData = null
     )

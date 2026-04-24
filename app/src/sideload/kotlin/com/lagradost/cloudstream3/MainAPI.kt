@@ -726,7 +726,22 @@ fun TvType.isAnimeOp(): Boolean {
     return this == TvType.Anime || this == TvType.OVA
 }
 
-data class SubtitleFile(val lang: String, val url: String)
+data class SubtitleFile @Deprecated("Use newSubtitleFile", level = DeprecationLevel.WARNING) constructor(
+    var lang: String,
+    var url: String,
+    var headers: Map<String, String>? = null
+)
+
+suspend fun newSubtitleFile(
+    lang: String,
+    url: String,
+    initializer: suspend SubtitleFile.() -> Unit = { }
+): SubtitleFile {
+    @Suppress("DEPRECATION")
+    val builder = SubtitleFile(lang, url)
+    builder.initializer()
+    return builder
+}
 
 data class HomePageResponse(
     val items: List<HomePageList>,

@@ -32,8 +32,3 @@ open class VidhideExtractor : ExtractorApi() {
         return sources
     }
 }
-
-class VidHidePro : VidhideExtractor() {
-    override var name = "VidHidePro"
-    override var mainUrl = "https://vidhidepro.com"
-}
