@@ -1086,12 +1086,14 @@ private fun DetailsContent(
                             modifier = Modifier
                                 .zIndex(11f)
                                 .onGloballyPositioned { coords ->
-                                    if (stickyThreshold < 0f) {
-                                        // Un-scrolled Y coordinate protects against recompositions during scroll
-                                        val initialY = coords.positionInWindow().y + mobileScrollState.value
-                                        // Pinned Y: negative padding compensates for scaling-from-center so it aligns with back button
-                                        val pinnedY = statusBarsTop - with(density) { 12.dp.toPx() }
-                                        stickyThreshold = initialY - pinnedY
+                                    val currentInitialY = coords.positionInWindow().y + mobileScrollState.value
+                                    val pinnedY = statusBarsTop - with(density) { 12.dp.toPx() }
+                                    val calculatedThreshold = currentInitialY - pinnedY
+                                    
+                                    // Update if uninitialized, or if the layout shifts significantly (e.g. metadata loaded)
+                                    // The > 10f check prevents infinite recomposition loops and ignores 1-2px scroll jitter.
+                                    if (stickyThreshold < 0f || kotlin.math.abs(calculatedThreshold - stickyThreshold) > 10f) {
+                                        stickyThreshold = calculatedThreshold
                                     }
                                 }
                                 .graphicsLayer {
