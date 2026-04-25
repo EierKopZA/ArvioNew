@@ -48,7 +48,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -332,15 +331,15 @@ fun SearchScreen(
                         }
                     }
                 ) {
-                    LazyRow(modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp).arvioDpadFocusGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                    LazyRow(modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp).arvioDpadFocusGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         items(DiscoverType.entries.size, key = { DiscoverType.entries[it].name }) { i -> val t = DiscoverType.entries[i]; GlowChip(t.label, uiState.selectedType == t) { viewModel.selectType(t) } }
                     }
-                    LazyRow(modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp).arvioDpadFocusGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                    LazyRow(modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp).arvioDpadFocusGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         val genres = viewModel.getGenresForType()
                         item(key = "all_g") { GlowChip("All Genres", uiState.selectedGenre == null) { viewModel.selectGenre(null) } }
                         items(genres.size, key = { "g_${genres[it].id}" }) { i -> GlowChip(genres[i].name, uiState.selectedGenre == genres[i]) { viewModel.selectGenre(genres[i]) } }
                     }
-                    LazyRow(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).arvioDpadFocusGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                    LazyRow(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).arvioDpadFocusGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         item(key = "any_l") { GlowChip("Any Language", uiState.selectedCountry == null) { viewModel.selectCountry(null) } }
                         items(COUNTRIES.size, key = { "c_${COUNTRIES[it].code}" }) { i -> GlowChip(COUNTRIES[i].name, uiState.selectedCountry == COUNTRIES[i]) { viewModel.selectCountry(COUNTRIES[i]) } }
                     }
@@ -432,13 +431,15 @@ private fun RowsLayer(
     } else {
         if (usePosterCards) 134.dp else 260.dp
     }
-    val rowHeight = if (isTouchDevice) {
+    val baseRowHeight = if (isTouchDevice) {
         if (usePosterCards) 220.dp else 160.dp
     } else if (usePosterCards) {
         if (screenHeight <= 640) 245.dp else 320.dp
     } else {
         if (screenHeight <= 640) 200.dp else 260.dp
     }
+    val focusBleedPadding = if (isTouchDevice) 14.dp else 22.dp
+    val rowHeight = baseRowHeight + focusBleedPadding
 
     val listState = rememberLazyListState()
     var lastAppliedTargetIndex by remember { mutableIntStateOf(-1) }
@@ -471,8 +472,8 @@ private fun RowsLayer(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(bottom = maxHeight * 0.6f),
-            modifier = Modifier.fillMaxSize().arvioDpadFocusGroup().clipToBounds(),
+            contentPadding = PaddingValues(top = focusBleedPadding / 2, bottom = maxHeight * 0.6f),
+            modifier = Modifier.fillMaxSize().arvioDpadFocusGroup(),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             items(categories.size, key = { categories[it].id }) { index ->
@@ -484,13 +485,13 @@ private fun RowsLayer(
                     animationSpec = tween(250), label = "rowAlpha"
                 )
 
-                Box(modifier = Modifier.fillMaxWidth().height(rowHeight).clipToBounds().graphicsLayer { alpha = rowAlpha }) {
+                Box(modifier = Modifier.fillMaxWidth().height(rowHeight).graphicsLayer { alpha = rowAlpha }) {
                     Column {
                         Text(
                             category.title,
                             style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp),
                             color = Color.White.copy(alpha = if (isCurrentRow) 0.9f else 0.5f),
-                            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp, top = 4.dp)
+                            modifier = Modifier.padding(start = focusBleedPadding, bottom = 8.dp, top = 4.dp)
                         )
 
                         val rowState = rememberLazyListState()
@@ -543,8 +544,13 @@ private fun RowsLayer(
                         LazyRow(
                             state = rowState,
                             modifier = Modifier.arvioDpadFocusGroup(),
-                            contentPadding = PaddingValues(start = 8.dp, end = itemWidth + 30.dp, top = 12.dp, bottom = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            contentPadding = PaddingValues(
+                                start = focusBleedPadding,
+                                end = itemWidth + 56.dp,
+                                top = focusBleedPadding,
+                                bottom = focusBleedPadding + 12.dp
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp)
                         ) {
                             itemsIndexed(category.items, key = { _, item -> "${item.mediaType}_${item.id}" }) { itemIdx, item ->
                                 val itemIsFocused = isCurrentRow && itemIdx == currentItemIndex
@@ -581,8 +587,9 @@ private fun ContentGrid(items: List<MediaItem>, usePosterCards: Boolean, isLoadi
     val gridState = rememberLazyGridState()
     LaunchedEffect(gridState.firstVisibleItemIndex, items.size) { val lv = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0; if (items.isNotEmpty() && lv >= items.size - 8) onLoadMore() }
 
-    LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(minSize = itemWidth + 16.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxSize().arvioDpadFocusGroup()) {
+    val focusBleedPadding = if (isTouchDevice) 14.dp else 24.dp
+    LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(minSize = itemWidth + focusBleedPadding), contentPadding = PaddingValues(horizontal = focusBleedPadding, vertical = focusBleedPadding),
+        horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(26.dp), modifier = Modifier.fillMaxSize().arvioDpadFocusGroup()) {
         items(items.size, key = { "${items[it].mediaType}_${items[it].id}" }) { idx ->
             val item = items[idx]
             MediaCard(item = item.copy(title = buildCardTitle(item), subtitle = buildCardSubtitle(item)),
