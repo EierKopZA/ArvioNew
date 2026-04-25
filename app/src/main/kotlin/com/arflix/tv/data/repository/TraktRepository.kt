@@ -102,7 +102,7 @@ class TraktRepository @Inject constructor(
     private fun expiresAtKey() = profileManager.profileLongKey("trakt_expires_at")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("trakt_include_specials")
     private fun dismissedContinueWatchingKey() = profileManager.profileStringKey("trakt_dismissed_continue_watching_v1")
-    private fun continueWatchingCacheKey() = profileManager.profileStringKey("trakt_continue_watching_cache_v1")
+    private fun continueWatchingCacheKey() = profileManager.profileStringKey("trakt_continue_watching_cache_v2")
     // Local Continue Watching for profiles without Trakt - stores progress locally per profile
     private fun localContinueWatchingKey() = profileManager.profileStringKey("local_continue_watching_v1")
     private fun localWatchedMoviesKey() = profileManager.profileStringKey("local_watched_movies_v1")
@@ -1084,9 +1084,8 @@ class TraktRepository @Inject constructor(
     }
 
     /**
-     * Get items to continue watching - Uses Trakt API directly for accuracy and speed.
+     * Get items to continue watching - Uses Trakt paused playback directly for accuracy and speed.
      * For profiles without Trakt, falls back to local Continue Watching storage.
-     * Refactored to fetch more shows and process in parallel.
      */
     suspend fun getContinueWatching(forceRefresh: Boolean = false): List<ContinueWatchingItem> = coroutineScope {
         val auth = getAuthHeader()
@@ -1115,14 +1114,11 @@ class TraktRepository @Inject constructor(
 
         try {
         val candidates = mutableListOf<ContinueWatchingCandidate>()
-        val includeSpecials = context.settingsDataStore.data.first()[includeSpecialsKey()] ?: false
 
         initializeWatchedCache()
 
-            // Mirror Trakt progress page:
-            // 1. Fetch watched shows + hidden shows in parallel
-            // 2. Filter out hidden & stale shows
-            // 3. Check progress for remaining shows
+            // Trakt Continue Watching mirrors sync/playback only. Show progress
+            // belongs in "Up Next"; using it here adds dropped ongoing shows.
             // Helper: detect HTTP 401/403 from Retrofit exceptions
             fun isAuthError(e: Exception): Boolean {
                 val httpEx = e as? retrofit2.HttpException ?: return false
@@ -1130,12 +1126,14 @@ class TraktRepository @Inject constructor(
             }
             // Re-acquire auth if the original token was stale
             val authHolder = arrayOf(auth)
-            val watchedShowsDeferred = async {
+            suspend fun <T> traktCallWithAuthRetry(
+                label: String,
+                block: suspend (String) -> T
+            ): T {
                 var lastErr: Exception? = null
                 repeat(2) { attempt ->
                     try {
-                        return@async traktApi.getWatchedShows(authHolder[0], clientId)
-                            .sortedByDescending { it.lastWatchedAt }
+                        return block(authHolder[0])
                     } catch (e: Exception) {
                         lastErr = e
                         if (attempt == 0 && isAuthError(e)) {
@@ -1148,38 +1146,33 @@ class TraktRepository @Inject constructor(
                         }
                     }
                 }
-                System.err.println("TraktRepo:getCW: getWatchedShows FAILED: ${lastErr?.message}")
-                emptyList()
+                throw lastErr ?: IllegalStateException("$label failed")
             }
             val hiddenShowsDeferred = async {
                 try {
-                    traktApi.getHiddenProgressShows(authHolder[0], clientId)
+                    traktCallWithAuthRetry("hidden progress shows") { currentAuth ->
+                        traktApi.getHiddenProgressShows(currentAuth, clientId)
+                    }
                 } catch (e: Exception) {
                     System.err.println("TraktRepo:getCW: getHiddenShows failed: ${e.message}")
                     emptyList()
                 }
             }
+            val playbackDeferred = async {
+                traktCallWithAuthRetry("playback progress") { currentAuth ->
+                    getAllPlaybackProgress(currentAuth)
+                }
+            }
 
-            val watchedShows = watchedShowsDeferred.await()
             val hiddenTraktIds = hiddenShowsDeferred.await()
                 .mapNotNull { it.show?.ids?.trakt }
                 .toSet()
-
-            // Filter: only remove hidden shows. No recency cutoff — old shows with
-            // new seasons or unfinished episodes should still appear. Shows with no
-            // next episode (nextEpisode=null from progress API) are filtered downstream.
-            val filteredShows = watchedShows
-                .filter { show ->
-                    val traktId = show.show.ids.trakt
-                    traktId != null && traktId !in hiddenTraktIds
-                }
-
-            // Step 1: Fetch actively paused playback items FIRST (sync/playback).
-            // These are truly in-progress items the user was actively watching.
+            // Fetch actively paused playback items (sync/playback).
             val processedKeys = mutableSetOf<String>()
-            val playbackTmdbIds = mutableSetOf<Int>() // Track TV show TMDB IDs from playback
+            var playbackFetched = false
             try {
-                val playbackItems = getAllPlaybackProgress(authHolder[0])
+                val playbackItems = playbackDeferred.await()
+                playbackFetched = true
                 for (item in playbackItems) {
                     if (item.progress < Constants.MIN_PROGRESS_THRESHOLD || item.progress > Constants.WATCHED_THRESHOLD) continue
 
@@ -1239,105 +1232,10 @@ class TraktRepository @Inject constructor(
                         )
                     )
                     processedKeys.add(key)
-                    playbackTmdbIds.add(tmdbId)
                 }
             } catch (e: Exception) {
                 System.err.println("TraktRepo:getCW: playback progress failed: ${e.message}")
             }
-
-            // Step 2: Fetch show progress for all watched shows (no recency filter).
-            // Skip shows already covered by playback items above.
-            val semaphore = Semaphore(10)
-
-            val showTasks = filteredShows
-                .filter { show ->
-                    // Skip shows already represented by a playback item
-                    val tmdbId = show.show.ids.tmdb
-                    tmdbId == null || tmdbId !in playbackTmdbIds
-                }
-                .map { show ->
-                async {
-                    semaphore.withPermit {
-                        val tmdbId = show.show.ids.tmdb ?: return@withPermit null
-                        val traktId = show.show.ids.trakt ?: return@withPermit null
-
-                        try {
-                            val progress = traktApi.getShowProgress(
-                                authHolder[0], clientId, "2", traktId.toString(),
-                                specials = includeSpecials.toString(),
-                                countSpecials = includeSpecials.toString()
-                            )
-
-                            // Handle reset_at: if user is rewatching, recalculate completed count
-                            val effectiveCompleted = if (progress.resetAt != null) {
-                                val resetMs = parseIso8601(progress.resetAt)
-                                progress.seasons?.sumOf { season ->
-                                    season.episodes?.count { ep ->
-                                        ep.completed && parseIso8601(ep.lastWatchedAt ?: "") > resetMs
-                                    } ?: 0
-                                } ?: progress.completed
-                            } else {
-                                progress.completed
-                            }
-
-                            val nextEp = progress.nextEpisode
-                            val isIncomplete = effectiveCompleted < progress.aired
-                            val syntheticProgress = if (progress.aired > 0) {
-                                ((effectiveCompleted.toFloat() / progress.aired.toFloat()) * 100f)
-                                    .toInt()
-                                    .coerceIn(1, 99)
-                            } else {
-                                1
-                            }
-
-                            // Validate next episode actually exists:
-                            // Check that the season has aired episodes in Trakt's progress data
-                            val nextEpValid = if (nextEp != null && progress.seasons != null) {
-                                val seasonData = progress.seasons.find { it.number == nextEp.season }
-                                seasonData != null && seasonData.aired > 0
-                            } else {
-                                nextEp != null
-                            }
-                            val validNextEp = if (nextEpValid) nextEp else null
-
-                            // Include the show if EITHER:
-                            // 1. It's incomplete (completed < aired) AND has a next episode, OR
-                            // 2. Trakt says there's a nextEpisode even if completed == aired
-                            //    (this happens when new episodes air after the aired count
-                            //    was computed — Trakt's nextEpisode field updates faster
-                            //    than the aired count).
-                            // The previous code required isIncomplete which dropped shows
-                            // like "Dr. Stone S4E26", "Invincible S4E6", etc. where the
-                            // user watched everything previously aired but new episodes
-                            // just became available.
-                            val shouldInclude = validNextEp != null && effectiveCompleted >= 1
-                            if (shouldInclude && validNextEp != null) {
-                                ContinueWatchingCandidate(
-                                    item = ContinueWatchingItem(
-                                        id = tmdbId,
-                                        title = show.show.title,
-                                        mediaType = MediaType.TV,
-                                        progress = syntheticProgress,
-                                        season = validNextEp.season,
-                                        episode = validNextEp.number,
-                                        episodeTitle = validNextEp.title,
-                                        year = show.show.year?.toString() ?: ""
-                                    ),
-                                    lastActivityAt = show.lastWatchedAt ?: ""
-                                )
-                            } else {
-                                null
-                            }
-                        } catch (e: Exception) {
-                            System.err.println("TraktRepo:getCW: progress fetch failed for show: ${e.message}")
-                            null
-                        }
-                    }
-                }
-            }
-
-            val showResults = showTasks.awaitAll().filterNotNull()
-            candidates.addAll(showResults)
 
             // 3. Hydrate with TMDB Details (Parallel)
             // Only hydrate the top items we will actually display
@@ -1374,6 +1272,12 @@ class TraktRepository @Inject constructor(
             }
 
             val topCandidates = filteredCandidates.sortedByDescending { it.lastActivityAt }.take(Constants.MAX_CONTINUE_WATCHING)
+            if (topCandidates.isEmpty() && playbackFetched) {
+                cachedContinueWatching = emptyList()
+                lastContinueWatchingFetch = System.currentTimeMillis()
+                persistContinueWatchingCache(emptyList())
+                return@coroutineScope emptyList()
+            }
 
             val hydrationTasks = topCandidates.map { candidate ->
                 async {
