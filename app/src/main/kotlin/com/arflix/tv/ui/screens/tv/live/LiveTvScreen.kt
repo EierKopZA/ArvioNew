@@ -91,6 +91,35 @@ private enum class LiveTvFocusZone {
     EPG,
 }
 
+private fun chooseStartupChannelId(
+    filteredChannels: List<EnrichedChannel>,
+    explicitInitialChannelId: String?,
+    sessionLastChannelId: String,
+    hasOpenedBefore: Boolean,
+    favoriteChannelIds: List<String>,
+    isFullyEnriched: Boolean,
+): String? {
+    explicitInitialChannelId
+        ?.takeIf { id -> filteredChannels.any { it.id == id } }
+        ?.let { return it }
+    if (explicitInitialChannelId != null && !isFullyEnriched) return null
+
+    if (hasOpenedBefore) {
+        sessionLastChannelId
+            .takeIf { id -> id.isNotBlank() && filteredChannels.any { it.id == id } }
+            ?.let { return it }
+
+        favoriteChannelIds
+            .firstOrNull { id -> filteredChannels.any { it.id == id } }
+            ?.let { return it }
+
+        val hasPreferredChannel = sessionLastChannelId.isNotBlank() || favoriteChannelIds.isNotEmpty()
+        if (hasPreferredChannel && !isFullyEnriched) return null
+    }
+
+    return filteredChannels.first().id
+}
+
 /**
  * Live TV screen — Arvio spec §1. Three focus regions: Sidebar ↔ MiniPlayer ↔ EPG.
  * Preserves every IPTV feature from the legacy [com.arflix.tv.ui.screens.tv.TvScreen]
@@ -132,6 +161,13 @@ fun LiveTvScreen(
     val initialChannelRenderLimit = if (isTouchDevice) 480 else 1200
     val recents = remember { mutableStateOf<LinkedHashSet<String>>(LinkedHashSet()) }
     val favSet = remember(state.snapshot.favoriteChannels) { state.snapshot.favoriteChannels.toSet() }
+    var seededRecentSessionChannel by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.tvSession.lastChannelId) {
+        if (!seededRecentSessionChannel && state.tvSession.lastChannelId.isNotBlank()) {
+            recents.value = LinkedHashSet<String>().apply { add(state.tvSession.lastChannelId) }
+            seededRecentSessionChannel = true
+        }
+    }
 
     // Enrichment runs on a background dispatcher and is published through state
     // — avoids blocking recomposition for 10k+ playlists. Result is cached in
@@ -267,13 +303,19 @@ fun LiveTvScreen(
         }
     }
 
-    // Pick a default channel to play when data arrives. Prefer a favorite
-    // from the current filter so opening the TV page lands on "your"
-    // channel; fall back to the first filtered entry.
-    LaunchedEffect(filteredChannels, playingChannelId) {
+    // Pick the startup channel when data arrives. First-ever opens keep the
+    // original first-channel behavior. Later opens prefer the persisted recent
+    // channel, then the first favorite, then the first filtered entry.
+    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size) {
         if (playingChannelId == null && filteredChannels.isNotEmpty()) {
-            playingChannelId = filteredChannels.firstOrNull { it.id in favSet }?.id
-                ?: filteredChannels.first().id
+            playingChannelId = chooseStartupChannelId(
+                filteredChannels = filteredChannels,
+                explicitInitialChannelId = initialChannelId,
+                sessionLastChannelId = state.tvSession.lastChannelId,
+                hasOpenedBefore = state.tvSession.lastOpenedAt > 0L,
+                favoriteChannelIds = state.snapshot.favoriteChannels,
+                isFullyEnriched = enrichedState.value.all.size >= state.snapshot.channels.size,
+            )
         }
         if (focusedChannelId == null || filteredChannels.none { it.id == focusedChannelId }) {
             focusedChannelId = playingChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
@@ -394,6 +436,12 @@ fun LiveTvScreen(
             set.remove(id); set.add(id)
             while (set.size > 40) set.remove(set.first())
             recents.value = set
+            viewModel.rememberTvSession(
+                lastChannelId = id,
+                lastGroupName = selectedCategoryId,
+                lastFocusedZone = "GUIDE",
+                markOpened = true,
+            )
         }
     }
 
