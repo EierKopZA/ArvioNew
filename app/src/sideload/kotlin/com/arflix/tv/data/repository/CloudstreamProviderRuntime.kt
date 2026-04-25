@@ -339,9 +339,9 @@ class CloudstreamProviderRuntime @Inject constructor(
     }.getOrNull()
 
     companion object {
-        private const val SEARCH_TIMEOUT_MS = 25_000L
-        private const val LOAD_TIMEOUT_MS = 15_000L
-        private const val LINKS_TIMEOUT_MS = 20_000L
+        private const val SEARCH_TIMEOUT_MS = 8_000L
+        private const val LOAD_TIMEOUT_MS = 6_000L
+        private const val LINKS_TIMEOUT_MS = 8_000L
     }
 }
 

@@ -412,8 +412,8 @@ class PlayerViewModel @Inject constructor(
 
                 // Collect progressive emissions. Wait a very short window so
                 // cached/debrid-ready sources can arrive before autoplay picks.
-                val AUTOPLAY_COLLECTION_WINDOW_MS = 1_200L
-                val AUTOPLAY_QUALITY_WINDOW_MS = 700L
+                val AUTOPLAY_COLLECTION_WINDOW_MS = 1_500L
+                val AUTOPLAY_QUALITY_WINDOW_MS = 1_000L
                 val collectionStartMs = System.currentTimeMillis()
                 var autoplaySelected = false
                 var lastMergedStreams: List<StreamSource> = emptyList()
@@ -426,8 +426,11 @@ class PlayerViewModel @Inject constructor(
                             u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                         }
                     val existingVod = _uiState.value.streams.filter { it.addonId == "iptv_xtream_vod" }
-                    val mergedStreams = (allStreams + existingVod)
-                        .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                    val mergedStreams = sortStreamsByQualityAndSize(
+                        (allStreams + existingVod)
+                            .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" },
+                        preferredLanguage
+                    )
                     lastMergedStreams = mergedStreams
 
                     val errorMessage = if (progressive.isFinal && mergedStreams.isEmpty()) {
@@ -761,32 +764,26 @@ class PlayerViewModel @Inject constructor(
         }.lowercase()
 
         // Quality is the PRIMARY signal — 4K beats 1080p beats 720p regardless of size.
-        var score = qualityScore(stream.quality) * 700
+        var score = qualityScore(stream.quality) * 1_000
 
-        // Within the same quality tier, prefer LARGER files (better bitrate/encode)
-        // up to a stability ceiling. Beyond ~45GB we start penalizing because
-        // those are usually season packs or overkill remuxes that stall on TV.
+        // Within the same quality tier, prefer larger files because they usually
+        // indicate better bitrate/encodes. Do not cap huge files: autoplay should
+        // still pick the best source and let fast failover handle bad starts.
         val sizeBytes = parseSize(stream.size)
         score += when {
-            sizeBytes <= 0L -> 40                                       // unknown size
-            sizeBytes <= 2L * 1024 * 1024 * 1024 -> 20                  // tiny / possibly re-encoded low
-            sizeBytes <= 8L * 1024 * 1024 * 1024 -> 100
-            sizeBytes <= 15L * 1024 * 1024 * 1024 -> 180                // sweet spot for 1080p
-            sizeBytes <= 25L * 1024 * 1024 * 1024 -> 160                // high-bitrate 1080p / good 4K
-            sizeBytes <= 45L * 1024 * 1024 * 1024 -> 40                 // big but still reasonable
-            sizeBytes <= 70L * 1024 * 1024 * 1024 -> -220               // avoid for autoplay
-            else -> -600                                                // likely slow/remux/pack
+            sizeBytes <= 0L -> 0
+            else -> (sizeBytes / (512L * 1024L * 1024L)).toInt().coerceAtMost(240)
         }
 
         if (text.contains("cam") || text.contains("hdcam") || text.contains("telesync")) score -= 600
         if (text.contains("web-dl") || text.contains("webrip")) score += 50
         if (text.contains("bluray") || text.contains("blu-ray")) score += 60
-        if (text.contains("remux")) score -= 120
-        if (text.contains("dolby vision") || text.contains(" dovi") || text.contains(" dv ")) score -= 180
-        if (text.contains("x265") || text.contains("hevc") || text.contains("h265")) score += 10
+        if (text.contains("remux")) score += 80
+        if (text.contains("dolby vision") || text.contains(" dovi") || text.contains(" dv ")) score += 30
+        if (text.contains("x265") || text.contains("hevc") || text.contains("h265")) score += 30
         if (text.contains("x264") || text.contains("h264")) score += 20
         if (stream.behaviorHints?.cached == true || text.contains(" rd+")) score += 500
-        if (stream.behaviorHints?.notWebReady == true) score -= 700
+        if (stream.behaviorHints?.notWebReady == true) score -= 150
         if (!stream.url.isNullOrBlank() && stream.url.startsWith("http", ignoreCase = true)) score += 100
         if (stream.url?.startsWith("magnet:", ignoreCase = true) == true) score -= 800
         score += streamRepository.getAddonHealthBias(stream.addonId)
@@ -908,22 +905,21 @@ class PlayerViewModel @Inject constructor(
     ): StreamSource? {
         if (streams.isEmpty()) return null
 
-        // Autoplay should prefer sources that start quickly. Very large
-        // remuxes remain selectable manually from the source list.
-        val maxSizeBytes = 45L * 1024 * 1024 * 1024
+        return sortStreamsByQualityAndSize(streams, preferredLanguage).firstOrNull()
+    }
 
-        val candidates = streams.filter {
-            val size = parseSize(it.size)
-            size == 0L || size < maxSizeBytes
-        }
-        val pool = if (candidates.isNotEmpty()) candidates else streams
-
-        // Step 2: Score by language affinity and playback stability.
-        return pool.maxByOrNull { stream ->
-            val langScore = streamLanguageScore(stream, preferredLanguage)
-            val stabilityScore = playbackPriorityScore(stream)
-            (langScore * 10_000) + stabilityScore
-        }
+    private fun sortStreamsByQualityAndSize(
+        streams: List<StreamSource>,
+        preferredLanguage: String
+    ): List<StreamSource> {
+        return streams.sortedWith(
+            compareByDescending<StreamSource> { qualityScore(it.quality) }
+                .thenByDescending { parseSize(it.size) }
+                .thenByDescending { streamLanguageScore(it, preferredLanguage) }
+                .thenByDescending { if (it.behaviorHints?.cached == true) 1 else 0 }
+                .thenBy { if (it.behaviorHints?.notWebReady == true) 1 else 0 }
+                .thenByDescending { streamRepository.getAddonHealthBias(it.addonId) }
+        )
     }
 
     // Robust size string parser - identical to StreamSelector's parseSizeString()
