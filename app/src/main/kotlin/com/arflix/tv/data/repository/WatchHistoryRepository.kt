@@ -17,6 +17,7 @@ import javax.inject.Singleton
 data class WatchHistoryEntry(
     val id: String? = null,
     val user_id: String,
+    val profile_id: String? = null,
     val media_type: String, // "movie" or "tv"
     val show_tmdb_id: Int,
     val show_trakt_id: Int? = null,
@@ -83,6 +84,9 @@ class WatchHistoryRepository @Inject constructor(
         val isDefault = profileManager.isDefaultProfile()
 
         return entries.filter { entry ->
+            if (!entry.profile_id.isNullOrBlank()) {
+                return@filter entry.profile_id == profileId
+            }
             val src = entry.source
             when {
                 // Profile-specific entries: match by UUID or name
@@ -117,6 +121,7 @@ class WatchHistoryRepository @Inject constructor(
 
         val entry = WatchHistoryEntry(
                 user_id = userId,
+                profile_id = profileManager.getProfileIdSync(),
                 media_type = if (mediaType == MediaType.MOVIE) "movie" else "tv",
                 show_tmdb_id = tmdbId,
                 title = title,
@@ -409,6 +414,7 @@ class WatchHistoryRepository @Inject constructor(
 private fun WatchHistoryEntry.toRecord(): com.arflix.tv.data.api.WatchHistoryRecord {
     return com.arflix.tv.data.api.WatchHistoryRecord(
         userId = user_id,
+        profileId = profile_id,
         mediaType = media_type,
         showTmdbId = show_tmdb_id,
         showTraktId = show_trakt_id,
@@ -436,6 +442,7 @@ private fun com.arflix.tv.data.api.WatchHistoryRecord.toEntry(): WatchHistoryEnt
     return WatchHistoryEntry(
         id = id,
         user_id = userId,
+        profile_id = profileId,
         media_type = mediaType,
         show_tmdb_id = showTmdbId ?: 0,
         show_trakt_id = showTraktId,

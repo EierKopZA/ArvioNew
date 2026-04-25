@@ -21,6 +21,7 @@ import coil.memory.MemoryCache
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
+import com.arflix.tv.data.repository.CloudSyncCoordinator
 import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.RealtimeSyncManager
 import com.arflix.tv.data.repository.WatchlistRepository
@@ -56,6 +57,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     @Inject
     lateinit var cloudSyncRepository: CloudSyncRepository
     @Inject
+    lateinit var cloudSyncCoordinator: CloudSyncCoordinator
+    @Inject
     lateinit var realtimeSyncManager: RealtimeSyncManager
     @Inject
     lateinit var watchlistRepository: WatchlistRepository
@@ -90,6 +93,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // Initialize active profile asynchronously to avoid blocking cold start.
         // Wire realtime push notification
         cloudSyncRepository.onPushCompleted = { realtimeSyncManager.markPush() }
+        cloudSyncCoordinator.start()
 
         appScope.launch {
             runCatching { profileManager.initialize() }
@@ -108,9 +112,11 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         appScope.launch {
             authRepository.authState.collect { state ->
                 if (state is AuthState.Authenticated) {
+                    cloudSyncCoordinator.start()
                     realtimeSyncManager.start()
                 } else {
                     realtimeSyncManager.stop()
+                    cloudSyncCoordinator.stop()
                 }
             }
         }

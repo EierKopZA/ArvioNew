@@ -8,6 +8,7 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.ContinueWatchingItem
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
 import com.arflix.tv.ui.components.normalizeCardLayoutMode
+import com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY
 import com.arflix.tv.util.settingsDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -38,7 +39,8 @@ class CloudSyncRepository @Inject constructor(
     private val iptvRepository: IptvRepository,
     private val streamRepository: StreamRepository,
     private val traktRepository: TraktRepository,
-    private val watchlistRepository: WatchlistRepository
+    private val watchlistRepository: WatchlistRepository,
+    private val invalidationBus: CloudSyncInvalidationBus
 ) {
     private val gson = Gson()
 
@@ -87,6 +89,8 @@ class CloudSyncRepository @Inject constructor(
         val showBudget: Boolean = true,
         val volumeBoostDb: Int = 0,
         val includeSpecials: Boolean = false,
+        val dnsProvider: String = "system",
+        val subtitleUsageJson: String = "",
         val iptvHiddenGroups: String = "",
         val iptvGroupOrder: String = ""
     )
@@ -103,6 +107,10 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileBooleanKeyFor(profileId, "show_budget_on_home")
     private fun volumeBoostDbKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "volume_boost_db")
+    private fun dnsProviderKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, "dns_provider")
+    private fun subtitleUsageKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, "subtitle_usage_v1")
 
     private fun subtitleSizeKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "subtitle_size")
@@ -128,6 +136,8 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
     private fun includeSpecialsKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "include_specials")
+    private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
+    private fun subtitleUsageKey() = profileManager.profileStringKey("subtitle_usage_v1")
 
     // Active-profile key shortcuts (used for legacy flat fields in snapshot)
     private fun defaultSubtitleKey() = profileManager.profileStringKey("default_subtitle")
@@ -187,6 +197,8 @@ class CloudSyncRepository @Inject constructor(
                         clockFormat = prefs[clockFormatKeyFor(profile.id)] ?: "24h",
                         showBudget = prefs[showBudgetKeyFor(profile.id)] ?: true,
                         volumeBoostDb = prefs[volumeBoostDbKeyFor(profile.id)]?.toIntOrNull()?.coerceIn(0, 15) ?: 0,
+                        dnsProvider = prefs[dnsProviderKeyFor(profile.id)] ?: "system",
+                        subtitleUsageJson = prefs[subtitleUsageKeyFor(profile.id)] ?: "",
                         subtitleSize = prefs[subtitleSizeKeyFor(profile.id)] ?: "Medium",
                         subtitleColor = prefs[subtitleColorKeyFor(profile.id)] ?: "White",
                         iptvHiddenGroups = prefs[iptvHiddenGroupsKeyFor(profile.id)] ?: "",
@@ -219,6 +231,9 @@ class CloudSyncRepository @Inject constructor(
         root.put("autoPlaySingleSource", prefs[autoPlaySingleSourceKey()] ?: true)
         root.put("autoPlayMinQuality", normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()] ?: "Any"))
         root.put("includeSpecials", prefs[includeSpecialsKey()] ?: false)
+        root.put("dnsProvider", prefs[dnsProviderKey()] ?: "system")
+        root.put("subtitleUsageJson", prefs[subtitleUsageKey()] ?: "")
+        root.put("skipProfileSelection", prefs[SKIP_PROFILE_SELECTION_KEY] ?: false)
 
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
@@ -386,7 +401,9 @@ class CloudSyncRepository @Inject constructor(
         if (payload.isBlank()) return@withLock RestoreResult.NO_BACKUP
 
         runCatching {
-            applyCloudPayload(payload)
+            invalidationBus.suppressDuringRemoteApply {
+                applyCloudPayload(payload)
+            }
         }.fold(
             onSuccess = { RestoreResult.RESTORED },
             onFailure = { e ->
@@ -445,6 +462,12 @@ class CloudSyncRepository @Inject constructor(
                         prefs[clockFormatKeyFor(profileId)] = state.clockFormat
                         prefs[showBudgetKeyFor(profileId)] = state.showBudget
                         prefs[volumeBoostDbKeyFor(profileId)] = state.volumeBoostDb.coerceIn(0, 15).toString()
+                        prefs[dnsProviderKeyFor(profileId)] = state.dnsProvider.ifBlank { "system" }
+                        if (state.subtitleUsageJson.isBlank()) {
+                            prefs.remove(subtitleUsageKeyFor(profileId))
+                        } else {
+                            prefs[subtitleUsageKeyFor(profileId)] = state.subtitleUsageJson
+                        }
                         prefs[subtitleSizeKeyFor(profileId)] = state.subtitleSize
                         prefs[subtitleColorKeyFor(profileId)] = state.subtitleColor
                         if (state.iptvHiddenGroups.isNotBlank()) prefs[iptvHiddenGroupsKeyFor(profileId)] = state.iptvHiddenGroups
@@ -469,6 +492,15 @@ class CloudSyncRepository @Inject constructor(
                 prefs[autoPlaySingleSourceKeyFor(activeProfileId)] = fallbackAutoPlaySingleSource
                 prefs[autoPlayMinQualityKeyFor(activeProfileId)] = fallbackAutoPlayMinQuality
                 prefs[includeSpecialsKeyFor(activeProfileId)] = fallbackIncludeSpecials
+                prefs[dnsProviderKeyFor(activeProfileId)] = root.optString("dnsProvider", "system").ifBlank { "system" }
+                root.optString("subtitleUsageJson", "").let { usage ->
+                    if (usage.isBlank()) prefs.remove(subtitleUsageKeyFor(activeProfileId)) else prefs[subtitleUsageKeyFor(activeProfileId)] = usage
+                }
+            }
+        }
+        if (root.has("skipProfileSelection")) {
+            context.settingsDataStore.edit { prefs ->
+                prefs[SKIP_PROFILE_SELECTION_KEY] = root.optBoolean("skipProfileSelection", false)
             }
         }
         authRepository.saveDefaultSubtitleToProfile(fallbackDefaultSubtitle)

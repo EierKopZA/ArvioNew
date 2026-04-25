@@ -78,7 +78,8 @@ class StreamRepository @Inject constructor(
     private val iptvRepository: IptvRepository,
     private val cloudstreamRepositoryService: CloudstreamRepositoryService,
     private val cloudstreamPluginInstaller: CloudstreamPluginInstaller,
-    private val cloudstreamProviderRuntime: CloudstreamProviderRuntime
+    private val cloudstreamProviderRuntime: CloudstreamProviderRuntime,
+    private val invalidationBus: CloudSyncInvalidationBus
 ) {
     companion object {
         const val SUPPORTED_CLOUDSTREAM_API_VERSION = 1
@@ -168,6 +169,7 @@ class StreamRepository @Inject constructor(
     suspend fun setTorrServerBaseUrl(raw: String) {
         // Allow blank to reset to default autodetect.
         context.streamDataStore.edit { prefs -> prefs[torrServerBaseUrlKey()] = raw.trim() }
+        invalidationBus.markDirty(CloudSyncScope.PROFILE_SETTINGS, profileManager.getProfileIdSync(), "torrserver url")
     }
 
     // Default addons - only built-in sources that work without configuration
@@ -200,6 +202,7 @@ class StreamRepository @Inject constructor(
             hidden.add(trimmed)
             prefs[hiddenBuiltInAddonsKey()] = gson.toJson(hidden.toList())
         }
+        invalidationBus.markDirty(CloudSyncScope.ADDONS, profileManager.getProfileIdSync(), "hide builtin addon")
     }
 
     // ========== Addon Management ==========
@@ -676,6 +679,7 @@ class StreamRepository @Inject constructor(
         if (profileManager.getProfileIdSync() == profileId) {
             synchronized(streamResultCache) { streamResultCache.clear() }
         }
+        invalidationBus.markDirty(CloudSyncScope.ADDONS, profileId, "replace addons")
     }
 
     suspend fun replaceCloudstreamRepositoriesForProfile(
@@ -686,6 +690,7 @@ class StreamRepository @Inject constructor(
             prefs[cloudstreamReposKeyFor(profileId)] = gson.toJson(repositories)
             prefs.remove(cloudstreamPendingReposKeyFor(profileId))
         }
+        invalidationBus.markDirty(CloudSyncScope.ADDONS, profileId, "replace cloudstream repositories")
     }
 
     private suspend fun saveAddons(addons: List<Addon>) {
@@ -697,6 +702,7 @@ class StreamRepository @Inject constructor(
             prefs.remove(pendingAddonsKey())
         }
         synchronized(streamResultCache) { streamResultCache.clear() }
+        invalidationBus.markDirty(CloudSyncScope.ADDONS, profileManager.getProfileIdSync(), "save addons")
     }
 
     private suspend fun restoreCloudstreamAddonArtifacts(addons: List<Addon>): List<Addon> = withContext(Dispatchers.IO) {
@@ -828,6 +834,7 @@ class StreamRepository @Inject constructor(
             prefs[cloudstreamReposKey()] = gson.toJson(repositories)
             prefs.remove(cloudstreamPendingReposKey())
         }
+        invalidationBus.markDirty(CloudSyncScope.ADDONS, profileManager.getProfileIdSync(), "save cloudstream repositories")
     }
 
     private fun mergeAddonLists(primary: List<Addon>, secondary: List<Addon>): List<Addon> {

@@ -895,7 +895,8 @@ class AuthRepository @Inject constructor(
                 .upsert(
                     mapOf(
                         "user_id" to userId,
-                        "payload" to payload
+                        "payload" to payload,
+                        "updated_at" to Clock.System.now().toString()
                     )
                 )
             Result.success(Unit)

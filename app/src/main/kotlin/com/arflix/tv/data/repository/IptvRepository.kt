@@ -125,7 +125,8 @@ data class IptvTvSessionState(
 class IptvRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val invalidationBus: CloudSyncInvalidationBus
 ) {
     private val gson = Gson()
     private val loadMutex = Mutex()
@@ -303,6 +304,7 @@ class IptvRepository @Inject constructor(
                 )
             }
         }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "save tv session")
     }
 
     suspend fun saveConfig(m3uUrl: String, epgUrl: String) {
@@ -317,6 +319,7 @@ class IptvRepository @Inject constructor(
             prefs[playlistsKey()] = gson.toJson(primary)
         }
         invalidateCache()
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "save iptv config")
     }
 
     suspend fun savePlaylists(playlists: List<IptvPlaylistEntry>) {
@@ -337,6 +340,7 @@ class IptvRepository @Inject constructor(
             prefs[epgUrlKey()] = encryptConfigValue(primary?.epgUrl.orEmpty())
         }
         invalidateCache()
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "save iptv playlists")
     }
 
     suspend fun saveStalkerConfig(portalUrl: String, macAddress: String) {
@@ -349,6 +353,7 @@ class IptvRepository @Inject constructor(
             prefs[stalkerMacAddressKey()] = normalizedMac
         }
         invalidateCache()
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "save stalker config")
     }
 
     /**
@@ -589,6 +594,7 @@ class IptvRepository @Inject constructor(
         }
         invalidateCache()
         runCatching { cacheFile().delete() }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "clear iptv config")
     }
 
     suspend fun importCloudConfig(
@@ -632,6 +638,7 @@ class IptvRepository @Inject constructor(
             }
         }
         invalidateCache()
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "import iptv config")
     }
 
     suspend fun toggleFavoriteGroup(groupName: String) {
@@ -647,6 +654,7 @@ class IptvRepository @Inject constructor(
             }
             prefs[favoriteGroupsKey()] = gson.toJson(existing)
         }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle favorite group")
     }
 
     suspend fun toggleHiddenGroup(groupName: String) {
@@ -661,6 +669,7 @@ class IptvRepository @Inject constructor(
             }
             prefs[hiddenGroupsKey()] = gson.toJson(existing)
         }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle hidden group")
     }
 
     suspend fun moveGroupUp(groupName: String, currentGroups: List<String> = emptyList()) {
@@ -672,6 +681,7 @@ class IptvRepository @Inject constructor(
             if (idx > 0) { order.removeAt(idx); order.add(idx - 1, groupName) }
             prefs[groupOrderKey()] = gson.toJson(order)
         }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "move group up")
     }
 
     suspend fun moveGroupDown(groupName: String, currentGroups: List<String> = emptyList()) {
@@ -683,6 +693,7 @@ class IptvRepository @Inject constructor(
             if (idx >= 0 && idx < order.size - 1) { order.removeAt(idx); order.add(idx + 1, groupName) }
             prefs[groupOrderKey()] = gson.toJson(order)
         }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "move group down")
     }
 
     suspend fun toggleFavoriteChannel(channelId: String) {
@@ -698,6 +709,7 @@ class IptvRepository @Inject constructor(
             }
             prefs[favoriteChannelsKey()] = gson.toJson(existing)
         }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle favorite channel")
     }
 
     suspend fun loadSnapshot(
