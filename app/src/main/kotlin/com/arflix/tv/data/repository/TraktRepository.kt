@@ -102,7 +102,7 @@ class TraktRepository @Inject constructor(
     private fun expiresAtKey() = profileManager.profileLongKey("trakt_expires_at")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("trakt_include_specials")
     private fun dismissedContinueWatchingKey() = profileManager.profileStringKey("trakt_dismissed_continue_watching_v1")
-    private fun continueWatchingCacheKey() = profileManager.profileStringKey("trakt_continue_watching_cache_v2")
+    private fun continueWatchingCacheKey() = profileManager.profileStringKey("trakt_continue_watching_cache_v4")
     // Local Continue Watching for profiles without Trakt - stores progress locally per profile
     private fun localContinueWatchingKey() = profileManager.profileStringKey("local_continue_watching_v1")
     private fun localWatchedMoviesKey() = profileManager.profileStringKey("local_watched_movies_v1")
@@ -119,6 +119,7 @@ class TraktRepository @Inject constructor(
     @Volatile private var continueWatchingFetching = false
     private var lastContinueWatchingFetch = 0L
     private val CONTINUE_WATCHING_CACHE_MS = 300_000L // 5 minute cache to reduce API calls and improve performance
+    private val TRAKT_UP_NEXT_RECENT_WINDOW_MS = 548L * 24L * 60L * 60L * 1000L // 18 months
 
     @Serializable
     private data class TraktTokenUpdate(
@@ -1099,6 +1100,22 @@ class TraktRepository @Inject constructor(
         return all
     }
 
+    private suspend fun getAllHiddenProgressResetShows(auth: String): List<TraktHiddenItem> {
+        val all = mutableListOf<TraktHiddenItem>()
+        var page = 1
+        val limit = 100
+
+        while (true) {
+            val pageItems = traktApi.getHiddenProgressResetShows(auth, clientId, page = page, limit = limit)
+            if (pageItems.isEmpty()) break
+            all.addAll(pageItems)
+            if (pageItems.size < limit) break
+            page++
+        }
+
+        return all
+    }
+
     /**
      * Get items to continue watching - Uses Trakt paused playback directly for accuracy and speed.
      * For profiles without Trakt, falls back to local Continue Watching storage.
@@ -1133,8 +1150,10 @@ class TraktRepository @Inject constructor(
 
         initializeWatchedCache()
 
-            // Trakt Continue Watching mirrors sync/playback only. Show progress
-            // belongs in "Up Next"; using it here adds dropped ongoing shows.
+            // Trakt Continue Watching is built from explicit paused playback
+            // plus recent watched-show progress. We cannot call Trakt's website
+            // progress activity feed from API clients, so keep this bounded and
+            // respect both hidden and reset progress sections.
             // Helper: detect HTTP 401/403 from Retrofit exceptions
             fun isAuthError(e: Exception): Boolean {
                 val httpEx = e as? retrofit2.HttpException ?: return false
@@ -1174,6 +1193,16 @@ class TraktRepository @Inject constructor(
                     emptyList()
                 }
             }
+            val hiddenResetShowsDeferred = async {
+                try {
+                    traktCallWithAuthRetry("hidden progress reset shows") { currentAuth ->
+                        getAllHiddenProgressResetShows(currentAuth)
+                    }
+                } catch (e: Exception) {
+                    System.err.println("TraktRepo:getCW: getHiddenResetShows failed: ${e.message}")
+                    emptyList()
+                }
+            }
             val playbackDeferred = async {
                 traktCallWithAuthRetry("playback progress") { currentAuth ->
                     getAllPlaybackProgress(currentAuth)
@@ -1185,7 +1214,7 @@ class TraktRepository @Inject constructor(
                 }
             }
 
-            val hiddenTraktIds = hiddenShowsDeferred.await()
+            val hiddenTraktIds = (hiddenShowsDeferred.await() + hiddenResetShowsDeferred.await())
                 .mapNotNull { it.show?.ids?.trakt }
                 .toSet()
             // Fetch actively paused playback items (sync/playback).
@@ -1262,19 +1291,24 @@ class TraktRepository @Inject constructor(
 
             try {
                 val includeSpecials = context.settingsDataStore.data.first()[includeSpecialsKey()] ?: false
-                val watchedShows = watchedShowsDeferred.await()
+                val allWatchedShows = watchedShowsDeferred.await()
                     .asSequence()
                     .filter { watched ->
                         val show = watched.show
                         val traktId = show.ids.trakt
-                        val tmdbId = show.ids.tmdb
-                        tmdbId != null && traktId != null && traktId !in hiddenTraktIds
+                        show.ids.tmdb != null && traktId != null && traktId !in hiddenTraktIds
                     }
-                    .sortedByDescending { it.lastWatchedAt ?: "" }
-                    .take(Constants.MAX_PROGRESS_ENTRIES.coerceAtLeast(Constants.MAX_CONTINUE_WATCHING * 3))
+                    .sortedByDescending { it.lastWatchedAt ?: it.lastUpdatedAt ?: "" }
                     .toList()
 
-                val semaphore = Semaphore(10)
+                val recentCutoffMs = System.currentTimeMillis() - TRAKT_UP_NEXT_RECENT_WINDOW_MS
+                val recentWatchedShows = allWatchedShows.filter { watched ->
+                    parseIso8601(watched.lastWatchedAt ?: watched.lastUpdatedAt ?: "") >= recentCutoffMs
+                }
+                val watchedShows = (if (recentWatchedShows.size >= 8) recentWatchedShows else allWatchedShows)
+                    .take(Constants.MAX_PROGRESS_ENTRIES)
+
+                val semaphore = Semaphore(8)
                 val watchedProgressCandidates = watchedShows.map { watched ->
                     async {
                         semaphore.withPermit {
@@ -1323,7 +1357,7 @@ class TraktRepository @Inject constructor(
                                     year = show.year?.toString() ?: "",
                                     isUpNext = true
                                 ),
-                                lastActivityAt = progress.lastWatchedAt ?: watched.lastWatchedAt ?: ""
+                                lastActivityAt = progress.lastWatchedAt ?: watched.lastWatchedAt ?: watched.lastUpdatedAt ?: ""
                             )
                         }
                     }

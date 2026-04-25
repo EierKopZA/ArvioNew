@@ -354,6 +354,16 @@ interface TraktApi {
         @Query("page") page: Int? = null
     ): List<TraktHiddenItem>
 
+    @GET("users/hidden/progress_watched_reset")
+    suspend fun getHiddenProgressResetShows(
+        @Header("Authorization") auth: String,
+        @Header("trakt-api-key") clientId: String,
+        @Header("trakt-api-version") version: String = "2",
+        @Query("type") type: String = "show",
+        @Query("limit") limit: Int = 100,
+        @Query("page") page: Int? = null
+    ): List<TraktHiddenItem>
+
     // ========== Anime (Custom Lists) ==========
 
     @GET("lists/anime-streaming/anime-trending/items")
