@@ -456,13 +456,13 @@ fun TvScreen(
     }
     LaunchedEffect(safeGroupIndex, focusZone, groups.size) {
         if (focusZone == TvFocusZone.GROUPS && groups.isNotEmpty()) {
-            if (isFastNavigating) groupsListState.scrollToItem(safeGroupIndex)
+            if (isFastNavigating) runCatching { groupsListState.scrollToItem(safeGroupIndex) }
             else smoothScrollTo(groupsListState, safeGroupIndex)
         }
     }
     LaunchedEffect(safeChannelIndex, focusZone, channels.size) {
         if (focusZone == TvFocusZone.GUIDE && channels.isNotEmpty()) {
-            if (isFastNavigating) channelsListState.scrollToItem(safeChannelIndex)
+            if (isFastNavigating) runCatching { channelsListState.scrollToItem(safeChannelIndex) }
             else smoothScrollTo(channelsListState, safeChannelIndex)
         }
     }
@@ -1417,12 +1417,14 @@ private suspend fun smoothScrollTo(state: LazyListState, targetIndex: Int) {
     val outsideViewport = safe < firstVisible || safe > lastVisible
     val distance = abs(firstVisible - safe)
     if (safe == firstVisible && state.firstVisibleItemScrollOffset == 0) return
-    if (safe == 0 || distance > visibleSpan * 2) {
-        state.scrollToItem(safe)
-    } else if (distance <= 2 || (!outsideViewport && distance <= visibleSpan) || distance <= visibleSpan + 1) {
-        state.animateScrollToItem(safe)
-    } else {
-        state.scrollToItem(safe)
+    runCatching {
+        if (safe == 0 || distance > visibleSpan * 2) {
+            state.scrollToItem(safe)
+        } else if (distance <= 2 || (!outsideViewport && distance <= visibleSpan) || distance <= visibleSpan + 1) {
+            state.animateScrollToItem(safe)
+        } else {
+            state.scrollToItem(safe)
+        }
     }
 }
 

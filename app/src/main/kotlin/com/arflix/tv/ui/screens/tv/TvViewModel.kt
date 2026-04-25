@@ -64,6 +64,8 @@ class TvViewModel @Inject constructor(
     private var lastVisibleEpgRefreshAt: Long = 0L
     private var tvSessionSaveJob: Job? = null
     private var startupGuideWarmupKey: String? = null
+    private var fullEpgWarmupJob: Job? = null
+    private var lastFullEpgWarmupKey: String? = null
 
     /**
      * In-memory cache of the live-TV enriched channel list + category tree.
@@ -110,6 +112,7 @@ class TvViewModel @Inject constructor(
                     )
                 )
                 maybeWarmStartupGuide()
+                startFullEpgWarmup()
                 warmXtreamVodCache()
                 val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
                 val needsChannelReload = config.m3uUrl.isNotBlank() && cached.channels.isEmpty()
@@ -175,6 +178,7 @@ class TvViewModel @Inject constructor(
                 )
                 setUiState(_uiState.value.copy(config = config, snapshot = snapshot))
                 maybeWarmStartupGuide()
+                startFullEpgWarmup()
 
                 val hasAnyIptvConfig = config.m3uUrl.isNotBlank() ||
                     config.stalkerPortalUrl.isNotBlank() ||
@@ -209,7 +213,7 @@ class TvViewModel @Inject constructor(
                 )
             }
             runCatching {
-                kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+                kotlinx.coroutines.withTimeoutOrNull(180_000L) {
                     iptvRepository.loadSnapshot(
                         forcePlaylistReload = force,
                         forceEpgReload = forceEpg,
@@ -236,21 +240,24 @@ class TvViewModel @Inject constructor(
                             // groups (Norway, Sweden, Denmark …) appear immediately rather
                             // than inheriting the stale groups from the previous snapshot.
                             val freshGrouped = channels.groupBy { it.group.ifBlank { "Uncategorized" } }
-                            _uiState.value = _uiState.value.copy(
-                                isLoading = false,
-                                error = null,
-                                snapshot = currentSnapshot.copy(
-                                    channels = channels,
-                                    grouped = freshGrouped,
-                                    nowNext = if (cachedNowNext.isNotEmpty()) {
-                                        currentSnapshot.nowNext.toMutableMap().apply { putAll(cachedNowNext) }
-                                    } else {
-                                        currentSnapshot.nowNext
-                                    }
-                                ),
-                                loadingMessage = null,
-                                loadingPercent = 0
+                            setUiState(
+                                _uiState.value.copy(
+                                    isLoading = false,
+                                    error = null,
+                                    snapshot = currentSnapshot.copy(
+                                        channels = channels,
+                                        grouped = freshGrouped,
+                                        nowNext = if (cachedNowNext.isNotEmpty()) {
+                                            currentSnapshot.nowNext.toMutableMap().apply { putAll(cachedNowNext) }
+                                        } else {
+                                            currentSnapshot.nowNext
+                                        }
+                                    ),
+                                    loadingMessage = null,
+                                    loadingPercent = 0
+                                )
                             )
+                            startFullEpgWarmup()
                         }
                     )
                 } ?: throw IllegalStateException("IPTV load timed out")
@@ -267,6 +274,7 @@ class TvViewModel @Inject constructor(
                     )
                 )
                 maybeWarmStartupGuide()
+                startFullEpgWarmup()
                 warmXtreamVodCache()
                 if (!force && _uiState.value.isConfigured && snapshot.channels.isEmpty()) {
                     // Soft refresh returned empty even though IPTV is configured:
@@ -288,6 +296,7 @@ class TvViewModel @Inject constructor(
                         )
                     )
                     maybeWarmStartupGuide()
+                    startFullEpgWarmup()
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -340,9 +349,11 @@ class TvViewModel @Inject constructor(
             iptvRepository.reDeriveCachedNowNext(channelIds)
         } ?: return
         val current = _uiState.value
-        _uiState.value = current.copy(
-            snapshot = current.snapshot.copy(
-                nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(updated) }
+        setUiState(
+            current.copy(
+                snapshot = current.snapshot.copy(
+                    nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(updated) }
+                )
             )
         )
     }
@@ -364,6 +375,78 @@ class TvViewModel @Inject constructor(
                 val state = _uiState.value
                 if (state.isConfigured && state.snapshot.channels.isNotEmpty()) {
                     refreshGuideFromCache()
+                }
+            }
+        }
+    }
+
+    private fun startFullEpgWarmup() {
+        val state = _uiState.value
+        val channels = state.snapshot.channels
+        if (channels.isEmpty()) return
+        val missingCount = channels.count { channel -> !hasProgramData(state.snapshot.nowNext[channel.id]) }
+        if (missingCount == 0) return
+
+        val warmupKey = buildString {
+            append(state.config.syncSignature())
+            append('|')
+            append(channels.size)
+            append('|')
+            append(channels.firstOrNull()?.id.orEmpty())
+            append('|')
+            append(channels.lastOrNull()?.id.orEmpty())
+        }
+        if (warmupKey == lastFullEpgWarmupKey) return
+        lastFullEpgWarmupKey = warmupKey
+
+        fullEpgWarmupJob?.cancel()
+        fullEpgWarmupJob = viewModelScope.launch(Dispatchers.IO) {
+            val channelIds = channels.asSequence().map { it.id }.toCollection(LinkedHashSet())
+            System.err.println("[EPG-Full] warming guide for ${channelIds.size} channels, missing=$missingCount")
+            val refreshed = runCatching {
+                iptvRepository.refreshEpgForChannels(channelIds, maxChannels = 0)
+            }.getOrNull()
+
+            if (!refreshed.isNullOrEmpty()) {
+                val current = _uiState.value
+                setUiState(
+                    current.copy(
+                        snapshot = current.snapshot.copy(
+                            nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(refreshed) }
+                        )
+                    )
+                )
+            }
+
+            val afterRefresh = _uiState.value
+            val stillMissing = afterRefresh.snapshot.channels.count { channel ->
+                !hasProgramData(afterRefresh.snapshot.nowNext[channel.id])
+            }
+            if (stillMissing == 0 || !refreshed.isNullOrEmpty()) return@launch
+
+            val broadSnapshot = runCatching {
+                iptvRepository.loadSnapshot(
+                    forcePlaylistReload = false,
+                    forceEpgReload = true,
+                    allowNetworkEpgFetch = true
+                )
+            }.getOrNull() ?: return@launch
+
+            if (broadSnapshot.nowNext.isNotEmpty()) {
+                setUiState(
+                    _uiState.value.copy(
+                        snapshot = broadSnapshot,
+                        isLoading = false,
+                        loadingMessage = null,
+                        loadingPercent = 0,
+                        error = null
+                    )
+                )
+            }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (fullEpgWarmupJob === job) {
+                    fullEpgWarmupJob = null
                 }
             }
         }
@@ -439,16 +522,18 @@ class TvViewModel @Inject constructor(
 
             if (!eagerRefreshed.isNullOrEmpty()) {
                 val current = _uiState.value
-                _uiState.value = current.copy(
-                    snapshot = current.snapshot.copy(
-                        nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(eagerRefreshed) }
+                setUiState(
+                    current.copy(
+                        snapshot = current.snapshot.copy(
+                            nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(eagerRefreshed) }
+                        )
                     )
                 )
             }
 
             val backgroundIds = orderedIds
                 .drop(eagerIds.size)
-                .take(backgroundLimit.coerceAtLeast(0))
+                .let { ids -> if (backgroundLimit > 0) ids.take(backgroundLimit) else ids }
                 .filterNot { id -> hasProgramData(_uiState.value.snapshot.nowNext[id]) }
             if (backgroundIds.isEmpty()) return@launch
 
@@ -462,9 +547,11 @@ class TvViewModel @Inject constructor(
 
             if (!backgroundRefreshed.isNullOrEmpty()) {
                 val current = _uiState.value
-                _uiState.value = current.copy(
-                    snapshot = current.snapshot.copy(
-                        nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(backgroundRefreshed) }
+                setUiState(
+                    current.copy(
+                        snapshot = current.snapshot.copy(
+                            nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(backgroundRefreshed) }
+                        )
                     )
                 )
             }
@@ -526,7 +613,7 @@ class TvViewModel @Inject constructor(
 
     private fun setUiState(nextState: TvUiState) {
         val previous = _uiState.value
-        _uiState.value = if (previous.snapshot == nextState.snapshot && previous.query == nextState.query) {
+        _uiState.value = if (canReusePreparedContent(previous, nextState)) {
             nextState.copy(
                 channelLookup = previous.channelLookup,
                 groups = previous.groups,
@@ -535,6 +622,18 @@ class TvViewModel @Inject constructor(
         } else {
             setPreparedContent(nextState)
         }
+    }
+
+    private fun canReusePreparedContent(previous: TvUiState, next: TvUiState): Boolean {
+        val previousSnapshot = previous.snapshot
+        val nextSnapshot = next.snapshot
+        return previous.query == next.query &&
+            previousSnapshot.channels === nextSnapshot.channels &&
+            previousSnapshot.grouped === nextSnapshot.grouped &&
+            previousSnapshot.favoriteChannels == nextSnapshot.favoriteChannels &&
+            previousSnapshot.favoriteGroups == nextSnapshot.favoriteGroups &&
+            previousSnapshot.hiddenGroups == nextSnapshot.hiddenGroups &&
+            previousSnapshot.groupOrder == nextSnapshot.groupOrder
     }
 
     private fun maybeWarmStartupGuide() {

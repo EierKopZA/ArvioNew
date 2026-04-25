@@ -211,7 +211,8 @@ class IptvRepository @Inject constructor(
     private val epgRecentProgramLimit = 2
     private val xtreamShortEpgLimit = 8
     private val startupShortEpgChannelLimit = 1200
-    private val generalShortEpgChannelLimit = 4000
+    private val xtreamShortEpgBatchSize = 512
+    private val xtreamShortEpgConcurrency = 32
     private val cacheUpcomingProgramLimit = 8
     private val cacheRecentProgramLimit = 1
     private val xtreamVodCacheMs = 6 * 60 * 60_000L
@@ -236,12 +237,13 @@ class IptvRepository @Inject constructor(
             .build()
     }
     private val iptvCatalogHttpClient: OkHttpClient by lazy {
-        // IPTV catalog/bootstrap calls should fail far sooner than full XMLTV downloads.
+        // Live catalog payloads can be very large (50k+ streams), so keep them
+        // below XMLTV timeouts but long enough to finish on TV WiFi.
         okHttpClient.newBuilder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(8, TimeUnit.SECONDS)
-            .callTimeout(40, TimeUnit.SECONDS)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(120, TimeUnit.SECONDS)
             .build()
     }
 
@@ -1227,7 +1229,11 @@ class IptvRepository @Inject constructor(
 
             val streamIds = xtreamChannels.mapNotNull { resolveXtreamStreamId(it) }
             var errors = 0
-            val allListings = fetchXtreamEpgListingsAsync(creds, streamIds) { _, hadError ->
+            val allListings = fetchXtreamEpgListingsAsync(
+                creds = creds,
+                streamIds = streamIds,
+                timeoutMillis = xtreamShortEpgTimeout(streamIds.size)
+            ) { _, hadError ->
                 if (hadError) errors++
             }
             System.err.println("[EPG-Refresh] Done: ${allListings.size} listings, $errors errors")
@@ -1565,7 +1571,7 @@ class IptvRepository @Inject constructor(
         resolveXtreamCredentials(playlist)?.let { creds ->
             onProgress(IptvLoadProgress("Detected Xtream provider. Loading live channels...", 6))
             runCatching {
-                withTimeoutOrNull(30_000L) {
+                withTimeoutOrNull(120_000L) {
                     fetchXtreamLiveChannels(creds, onProgress)
                 } ?: throw IllegalStateException("Xtream provider timed out while loading live channels.")
             }
@@ -1586,7 +1592,7 @@ class IptvRepository @Inject constructor(
         resolveXtreamCredentials(url)?.let { creds ->
             onProgress(IptvLoadProgress("Detected Xtream provider. Loading live channels...", 6))
             runCatching {
-                withTimeoutOrNull(45_000L) {
+                withTimeoutOrNull(120_000L) {
                     fetchXtreamLiveChannels(creds, onProgress)
                 } ?: throw IllegalStateException("Xtream provider timed out while loading live channels.")
             }
@@ -3662,7 +3668,7 @@ class IptvRepository @Inject constructor(
         // to serve per playlist, so effectively "all available". Combined
         // with the widened concurrency in fetchXtreamEpgListingsAsync this
         // completes within the 60s budget for most providers.
-        val toFetch = prioritized.take(generalShortEpgChannelLimit)
+        val toFetch = prioritized
         System.err.println("[EPG] Xtream short EPG: fetching ${toFetch.size}/${xtreamChannels.size} channels")
         if (toFetch.isEmpty()) return null
 
@@ -3671,7 +3677,11 @@ class IptvRepository @Inject constructor(
         val total = toFetch.size
         val streamIds = toFetch.mapNotNull { resolveXtreamStreamId(it) }
 
-        val allListings = fetchXtreamEpgListingsAsync(creds, streamIds) { _, hadError ->
+        val allListings = fetchXtreamEpgListingsAsync(
+            creds = creds,
+            streamIds = streamIds,
+            timeoutMillis = xtreamShortEpgTimeout(streamIds.size)
+        ) { _, hadError ->
             fetched++
             if (hadError) errors++
             if (fetched % 50 == 0) {
@@ -3718,11 +3728,16 @@ class IptvRepository @Inject constructor(
         // the enlarged 180s budget. Providers typically tolerate this; any
         // over-limit request simply fails and the fallback per-channel call
         // handles it silently.
+        val distinctStreamIds = streamIds.distinct()
+        if (distinctStreamIds.isEmpty()) return emptyList()
+        val gate = Semaphore(xtreamShortEpgConcurrency)
         val result = withTimeoutOrNull(timeoutMillis) {
             withContext(Dispatchers.IO.limitedParallelism(32)) {
-                val sampleLogged = java.util.concurrent.atomic.AtomicBoolean(false)
-                streamIds.map { sid ->
+                val sampleLogged = AtomicBoolean(false)
+                distinctStreamIds.chunked(xtreamShortEpgBatchSize).flatMap { batch ->
+                    batch.map { sid ->
                     async {
+                        gate.withPermit {
                         var hadError = false
                         val url = "${creds.baseUrl}/player_api.php?username=${creds.username}" +
                             "&password=${creds.password}&action=get_short_epg&stream_id=$sid&limit=$xtreamShortEpgLimit"
@@ -3743,12 +3758,22 @@ class IptvRepository @Inject constructor(
                         } catch (_: Exception) { hadError = true }
                         onStreamProcessed(sid, hadError)
                         listings ?: emptyList()
+                        }
                     }
-                }.awaitAll().flatten()
+                    }.awaitAll().flatten()
+                }
             }
         }
         return result ?: emptyList()
     }
+
+    private fun xtreamShortEpgTimeout(streamCount: Int): Long =
+        when {
+            streamCount > 25_000 -> 1_200_000L
+            streamCount > 10_000 -> 900_000L
+            streamCount > 4_000 -> 420_000L
+            else -> 180_000L
+        }
 
     /**
      * Constructs a mapping of IPTV channel IDs to their current and upcoming program windows from a list of Xtream short EPG listings.
@@ -4312,12 +4337,24 @@ class IptvRepository @Inject constructor(
 
     private fun buildChannelId(streamUrl: String, epgId: String?): String {
         val normalizedEpg = normalizeChannelKey(epgId ?: "")
+        val streamKey = stableStreamKey(streamUrl)
         return if (normalizedEpg.isNotBlank()) {
-            "epg:$normalizedEpg"
+            "m3u:$normalizedEpg:$streamKey"
         } else {
-            "url:${streamUrl.trim()}"
+            "m3u:$streamKey"
         }
     }
+
+    private fun stableStreamKey(streamUrl: String): String {
+        val normalized = streamUrl.trim()
+        if (normalized.isEmpty()) return "empty"
+        return "${normalized.length}-${sha1Hex(normalized).take(16)}"
+    }
+
+    private fun sha1Hex(value: String): String =
+        MessageDigest.getInstance("SHA-1")
+            .digest(value.toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     private fun extractChannelName(metadata: String?): String {
         if (metadata.isNullOrBlank()) return "Unknown Channel"
