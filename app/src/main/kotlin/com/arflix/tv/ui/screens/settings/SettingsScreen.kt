@@ -9,6 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import com.arflix.tv.BuildConfig
 import androidx.compose.foundation.background
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -53,6 +56,10 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -3127,7 +3134,7 @@ private fun GeneralSettings(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun IptvSettings(
     playlists: List<com.arflix.tv.data.repository.IptvPlaylistEntry>,
@@ -3149,13 +3156,61 @@ private fun IptvSettings(
     onRefresh: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIndices by remember { mutableStateOf(setOf<Int>()) }
+
     Column {
-        Text(
-            text = "IPTV",
-            style = ArflixTypography.sectionTitle,
-            color = TextPrimary,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
+        if (!isMobile) {
+            Text(
+                text = "IPTV",
+                style = ArflixTypography.sectionTitle,
+                color = TextPrimary,
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+        } else if (selectionMode) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${selectedIndices.size} selected",
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (selectedIndices.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable {
+                                selectedIndices.sortedDescending().forEach { index ->
+                                    onDeletePlaylist(index)
+                                }
+                                selectionMode = false
+                                selectedIndices = emptySet()
+                            }
+                            .background(Color(0xFFDC2626), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable {
+                            selectionMode = false
+                            selectedIndices = emptySet()
+                        }
+                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
 
         SettingsRow(
             icon = Icons.Default.LiveTv,
@@ -3171,22 +3226,56 @@ private fun IptvSettings(
 
         playlists.forEachIndexed { index, playlist ->
             val rowIndex = index + 1
+            val isSelected = selectedIndices.contains(index)
             Row(
                 modifier = Modifier
                     .settingsFocusSlot(rowIndex)
                     .fillMaxWidth()
                     .background(
-                        if (focusedIndex == rowIndex) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                        if (isSelected) Pink.copy(alpha = 0.2f)
+                        else if (focusedIndex == rowIndex) Color.White.copy(alpha = 0.08f) 
+                        else Color.Transparent,
                         RoundedCornerShape(12.dp)
+                    )
+                    .then(
+                        if (isMobile) {
+                            Modifier.combinedClickable(
+                                onClick = {
+                                    if (selectionMode) {
+                                        selectedIndices = if (isSelected) selectedIndices - index else selectedIndices + index
+                                        if (selectedIndices.isEmpty()) selectionMode = false
+                                    } else {
+                                        onEditPlaylist(index)
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        selectionMode = true
+                                        selectedIndices = setOf(index)
+                                    }
+                                }
+                            )
+                        } else {
+                            Modifier.clickable { onEditPlaylist(index) }
+                        }
                     )
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (isMobile && selectionMode) {
+                    Icon(
+                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = null,
+                        tint = if (isSelected) Pink else TextSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = playlist.name,
                         style = ArflixTypography.body,
-                        color = if (focusedIndex == rowIndex) TextPrimary else TextSecondary,
+                        color = if (focusedIndex == rowIndex || isSelected) TextPrimary else TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -3200,36 +3289,72 @@ private fun IptvSettings(
                     )
                 }
 
-                CatalogActionChip(
-                    icon = if (playlist.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
-                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 0,
-                    onClick = { onTogglePlaylist(index) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.Edit,
-                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 1,
-                    onClick = { onEditPlaylist(index) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowUpward,
-                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 2,
-                    onClick = { onMovePlaylistUp(index) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowDownward,
-                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 3,
-                    onClick = { onMovePlaylistDown(index) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.Delete,
-                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 4,
-                    isDestructive = true,
-                    onClick = { onDeletePlaylist(index) }
-                )
+                if (isMobile) {
+                    if (selectionMode && selectedIndices.size == 1 && isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Drag to reorder",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .pointerInput(index) {
+                                    var dragOffset = 0f
+                                    val itemHeight = 64.dp.toPx()
+                                    detectVerticalDragGestures(
+                                        onDragEnd = { dragOffset = 0f },
+                                        onDragCancel = { dragOffset = 0f }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        dragOffset += dragAmount
+                                        if (dragOffset > itemHeight) {
+                                            onMovePlaylistDown(index)
+                                            dragOffset -= itemHeight
+                                        } else if (dragOffset < -itemHeight) {
+                                            onMovePlaylistUp(index)
+                                            dragOffset += itemHeight
+                                        }
+                                    }
+                                }
+                        )
+                    } else if (!selectionMode) {
+                        CatalogActionChip(
+                            icon = if (playlist.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
+                            isFocused = false,
+                            onClick = { onTogglePlaylist(index) }
+                        )
+                    }
+                } else {
+                    CatalogActionChip(
+                        icon = if (playlist.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
+                        isFocused = focusedIndex == rowIndex && focusedActionIndex == 0,
+                        onClick = { onTogglePlaylist(index) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.Edit,
+                        isFocused = focusedIndex == rowIndex && focusedActionIndex == 1,
+                        onClick = { onEditPlaylist(index) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowUpward,
+                        isFocused = focusedIndex == rowIndex && focusedActionIndex == 2,
+                        onClick = { onMovePlaylistUp(index) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowDownward,
+                        isFocused = focusedIndex == rowIndex && focusedActionIndex == 3,
+                        onClick = { onMovePlaylistDown(index) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.Delete,
+                        isFocused = focusedIndex == rowIndex && focusedActionIndex == 4,
+                        isDestructive = true,
+                        onClick = { onDeletePlaylist(index) }
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(10.dp))
         }
@@ -3315,7 +3440,6 @@ private fun IptvSettings(
                 )
             }
         }
-
     }
 }
 
@@ -3453,7 +3577,7 @@ private fun SettingsToggleRow(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun CatalogsSettings(
     catalogs: List<CatalogConfig>,
@@ -3465,13 +3589,62 @@ private fun CatalogsSettings(
     onMoveCatalogDown: (CatalogConfig) -> Unit,
     onDeleteCatalog: (CatalogConfig) -> Unit
 ) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+
     Column {
-        Text(
-            text = "Catalogs",
-            style = ArflixTypography.sectionTitle,
-            color = TextPrimary,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
+        if (!isMobile) {
+            Text(
+                text = "Catalogs",
+                style = ArflixTypography.sectionTitle,
+                color = TextPrimary,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+        } else if (selectionMode) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${selectedIds.size} selected",
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (selectedIds.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable {
+                                selectedIds.forEach { id ->
+                                    val cat = catalogs.find { it.id == id }
+                                    if (cat != null) onDeleteCatalog(cat)
+                                }
+                                selectionMode = false
+                                selectedIds = emptySet()
+                            }
+                            .background(Color(0xFFDC2626), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable {
+                            selectionMode = false
+                            selectedIds = emptySet()
+                        }
+                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
         Text(
             text = "Trakt/MDBList URLs can be added manually. Addon catalogs appear automatically.",
             style = ArflixTypography.caption,
@@ -3520,22 +3693,56 @@ private fun CatalogsSettings(
                 }
             }
 
+            val isSelected = selectedIds.contains(catalog.id)
             Row(
                 modifier = Modifier
                     .settingsFocusSlot(rowFocusIndex)
                     .fillMaxWidth()
                     .background(
-                        if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                        if (isSelected) Pink.copy(alpha = 0.2f)
+                        else if (isRowFocused) Color.White.copy(alpha = 0.08f) 
+                        else Color.Transparent,
                         RoundedCornerShape(12.dp)
+                    )
+                    .then(
+                        if (isMobile) {
+                            Modifier.combinedClickable(
+                                onClick = {
+                                    if (selectionMode) {
+                                        selectedIds = if (isSelected) selectedIds - catalog.id else selectedIds + catalog.id
+                                        if (selectedIds.isEmpty()) selectionMode = false
+                                    } else {
+                                        onRenameCatalog(catalog)
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        selectionMode = true
+                                        selectedIds = setOf(catalog.id)
+                                    }
+                                }
+                            )
+                        } else {
+                            Modifier.clickable { onRenameCatalog(catalog) }
+                        }
                     )
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (isMobile && selectionMode) {
+                    Icon(
+                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = null,
+                        tint = if (isSelected) Pink else TextSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         style = ArflixTypography.body,
-                        color = if (isRowFocused) TextPrimary else TextSecondary,
+                        color = if (isRowFocused || isSelected) TextPrimary else TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -3549,31 +3756,61 @@ private fun CatalogsSettings(
                     )
                 }
 
-                CatalogActionChip(
-                    icon = Icons.Default.Edit,
-                    isFocused = isRowFocused && focusedActionIndex == 0,
-                    onClick = { onRenameCatalog(catalog) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowUpward,
-                    isFocused = isRowFocused && focusedActionIndex == 1,
-                    onClick = { onMoveCatalogUp(catalog) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowDownward,
-                    isFocused = isRowFocused && focusedActionIndex == 2,
-                    onClick = { onMoveCatalogDown(catalog) }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.Delete,
-                    isFocused = isRowFocused && focusedActionIndex == 3,
-                    isDestructive = true,
-                    enabled = true,
-                    onClick = { onDeleteCatalog(catalog) }
-                )
+                if (isMobile) {
+                    if (selectionMode && selectedIds.size == 1 && isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Drag to reorder",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .pointerInput(catalog.id) {
+                                    var dragOffset = 0f
+                                    val itemHeight = 64.dp.toPx()
+                                    detectVerticalDragGestures(
+                                        onDragEnd = { dragOffset = 0f },
+                                        onDragCancel = { dragOffset = 0f }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        dragOffset += dragAmount
+                                        if (dragOffset > itemHeight) {
+                                            onMoveCatalogDown(catalog)
+                                            dragOffset -= itemHeight
+                                        } else if (dragOffset < -itemHeight) {
+                                            onMoveCatalogUp(catalog)
+                                            dragOffset += itemHeight
+                                        }
+                                    }
+                                }
+                        )
+                    }
+                } else {
+                    CatalogActionChip(
+                        icon = Icons.Default.Edit,
+                        isFocused = isRowFocused && focusedActionIndex == 0,
+                        onClick = { onRenameCatalog(catalog) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowUpward,
+                        isFocused = isRowFocused && focusedActionIndex == 1,
+                        onClick = { onMoveCatalogUp(catalog) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowDownward,
+                        isFocused = isRowFocused && focusedActionIndex == 2,
+                        onClick = { onMoveCatalogDown(catalog) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.Delete,
+                        isFocused = isRowFocused && focusedActionIndex == 3,
+                        isDestructive = true,
+                        enabled = true,
+                        onClick = { onDeleteCatalog(catalog) }
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(10.dp))
         }
