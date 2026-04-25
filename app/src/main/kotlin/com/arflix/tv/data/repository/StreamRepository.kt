@@ -1600,7 +1600,7 @@ class StreamRepository @Inject constructor(
             val mutex = Mutex()
             val aggregatedStreams = mutableListOf<StreamSource>()
             var completed = 0
-            val totalAddons = prioritizedAddons.size + if (cloudstreamAddons.isNotEmpty()) 1 else 0
+            val totalAddons = prioritizedAddons.size + cloudstreamAddons.size
             prioritizedAddons.forEach { addon ->
                 launch {
                     val addonStreams = try {
@@ -1625,15 +1625,23 @@ class StreamRepository @Inject constructor(
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
+                        val progressiveResult = ProgressiveStreamResult(
+                            filtered,
+                            emptyList(),
+                            completed,
+                            totalAddons,
+                            completed == totalAddons
+                        )
+                        trySend(progressiveResult)
+                        if (progressiveResult.isFinal) close()
                     }
                 }
             }
-            if (cloudstreamAddons.isNotEmpty()) {
+            cloudstreamAddons.forEach { addon ->
                 launch {
                     val addonStreams = try {
                         cloudstreamProviderRuntime.resolveMovieStreams(
-                            addons = cloudstreamAddons,
+                            addons = listOf(addon),
                             title = title,
                             year = year
                         )
@@ -1657,7 +1665,15 @@ class StreamRepository @Inject constructor(
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
+                        val progressiveResult = ProgressiveStreamResult(
+                            filtered,
+                            emptyList(),
+                            completed,
+                            totalAddons,
+                            completed == totalAddons
+                        )
+                        trySend(progressiveResult)
+                        if (progressiveResult.isFinal) close()
                     }
                 }
             }
@@ -1932,7 +1948,7 @@ class StreamRepository @Inject constructor(
             val mutex = Mutex()
             val aggregatedStreams = mutableListOf<StreamSource>()
             var completed = 0
-            val totalAddons = prioritizedAddons.size + if (cloudstreamAddons.isNotEmpty()) 1 else 0
+            val totalAddons = prioritizedAddons.size + cloudstreamAddons.size
             prioritizedAddons.forEach { addon ->
                 launch {
                     val addonStreams = try {
@@ -1968,15 +1984,23 @@ class StreamRepository @Inject constructor(
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
+                        val progressiveResult = ProgressiveStreamResult(
+                            filtered,
+                            emptyList(),
+                            completed,
+                            totalAddons,
+                            completed == totalAddons
+                        )
+                        trySend(progressiveResult)
+                        if (progressiveResult.isFinal) close()
                     }
                 }
             }
-            if (cloudstreamAddons.isNotEmpty()) {
+            cloudstreamAddons.forEach { addon ->
                 launch {
                     val addonStreams = try {
                         cloudstreamProviderRuntime.resolveEpisodeStreams(
-                            addons = cloudstreamAddons,
+                            addons = listOf(addon),
                             title = title,
                             year = null,
                             season = season,
@@ -2003,7 +2027,15 @@ class StreamRepository @Inject constructor(
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
+                        val progressiveResult = ProgressiveStreamResult(
+                            filtered,
+                            emptyList(),
+                            completed,
+                            totalAddons,
+                            completed == totalAddons
+                        )
+                        trySend(progressiveResult)
+                        if (progressiveResult.isFinal) close()
                     }
                 }
             }
@@ -2104,7 +2136,7 @@ class StreamRepository @Inject constructor(
         }
 
         val videoHash = stream?.behaviorHints?.videoHash?.trim().takeUnless { it.isNullOrBlank() }
-        val videoSize = stream?.behaviorHints?.videoSize?.takeIf { it != null && it > 0L }
+        val videoSize = stream?.behaviorHints?.videoSize?.takeIf { it > 0L }
 
         val contentId = when (mediaType) {
             MediaType.MOVIE -> imdbId

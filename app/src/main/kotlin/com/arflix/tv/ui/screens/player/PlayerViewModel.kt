@@ -410,19 +410,10 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
 
-                // Collect progressive emissions, updating the UI as sources arrive.
-                // Press-to-play tiers (quality vs. instant-startup):
-                //   - Cache hit on first emission → pick immediately.
-                //   - A *cached* (debrid-ready) stream arrives → pick immediately.
-                //   - Otherwise wait AUTOPLAY_QUALITY_WINDOW_MS for more streams to
-                //     arrive, then pick the highest-quality/largest one we've seen.
-                //   - Hard cap AUTOPLAY_COLLECTION_WINDOW_MS even if still loading.
-                val AUTOPLAY_COLLECTION_WINDOW_MS = 2_000L
-                val AUTOPLAY_QUALITY_WINDOW_MS = 900L
-                val collectionStartMs = System.currentTimeMillis()
+                // Collect progressive emissions. Autoplay starts on the first
+                // usable batch while the source list keeps filling in the background.
                 var autoplaySelected = false
                 var lastMergedStreams: List<StreamSource> = emptyList()
-                var isFirstEmission = true
 
                 progressiveFlow.collect { progressive ->
                     val allStreams = progressive.streams
@@ -467,20 +458,7 @@ class PlayerViewModel @Inject constructor(
                         streamLoadPhase = phaseLabel
                     )
 
-                    // Cache hit path: first emission is already final (prefetch completed)
-                    // → pick immediately, no waiting.
-                    val cacheHit = isFirstEmission && progressive.isFinal && mergedStreams.isNotEmpty()
-                    isFirstEmission = false
-
-                    val elapsedMs = System.currentTimeMillis() - collectionStartMs
-                    val hasCachedStream = mergedStreams.any { it.behaviorHints?.cached == true }
-                    val shouldSelectNow = !autoplaySelected && mergedStreams.isNotEmpty() && (
-                        cacheHit ||
-                        progressive.isFinal ||
-                        hasCachedStream ||                                  // cached debrid = instant
-                        elapsedMs >= AUTOPLAY_QUALITY_WINDOW_MS ||          // short wait lets best quality arrive
-                        elapsedMs >= AUTOPLAY_COLLECTION_WINDOW_MS
-                    )
+                    val shouldSelectNow = !autoplaySelected && mergedStreams.isNotEmpty()
 
                     if (shouldSelectNow) {
                         autoplaySelected = true

@@ -416,9 +416,9 @@ fun PlayerScreen(
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
             .dns(OkHttpProvider.dns)
-            .connectTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
             .build()
     }
     val httpDataSourceFactory = remember(playbackHttpClient) {
@@ -460,10 +460,10 @@ fun PlayerScreen(
     val exoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                15_000,    // minBufferMs — 15s safety net
-                50_000,    // maxBufferMs — 50s max lookahead
-                500,       // bufferForPlaybackMs — stable start
-                2_500      // bufferForPlaybackAfterRebufferMs — stable resume
+                8_000,     // minBufferMs
+                45_000,    // maxBufferMs
+                250,       // bufferForPlaybackMs
+                1_500      // bufferForPlaybackAfterRebufferMs
             )
             .setTargetBufferBytes(80 * 1024 * 1024)   // 80 MB hard cap
             .setPrioritizeTimeOverSizeThresholds(false) // byte cap is authoritative
