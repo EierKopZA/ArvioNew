@@ -1027,7 +1027,7 @@ private fun GlassyStreamCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
             .scale(scale)
             .clickable { onClick() }
             .background(

@@ -2622,7 +2622,7 @@ private fun TvHomeRowsLayer(
                 contentType = { _, _ -> "home_category_row" }
             ) { index, category ->
                     val actualRowIndex = rowWindowStart + index
-                    val rowHeight = if (usePosterCards) 240.dp else 190.dp
+                    val rowHeight = if (usePosterCards) 252.dp else 202.dp
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2968,8 +2968,8 @@ private fun ContentRow(
                 contentPadding = PaddingValues(
                     start = startPadding,
                     end = itemWidth + 30.dp,
-                    top = 8.dp,
-                    bottom = 8.dp
+                    top = 14.dp,
+                    bottom = 14.dp
                 ),
                 horizontalArrangement = Arrangement.spacedBy(itemSpacing)
             ) {

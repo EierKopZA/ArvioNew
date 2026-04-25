@@ -1926,7 +1926,12 @@ private fun DetailsContent(
                         TvLazyRow(
                             state = seasonRowState,
                             modifier = Modifier.arvioDpadFocusGroup(),
-                            contentPadding = PaddingValues(start = contentStartPadding, end = 150.dp),
+                            contentPadding = PaddingValues(
+                                start = contentStartPadding,
+                                end = 150.dp,
+                                top = 12.dp,
+                                bottom = 12.dp,
+                            ),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             itemsIndexed(seasonItems, key = { _, s -> s }) { index, season ->
@@ -1965,7 +1970,12 @@ private fun DetailsContent(
                     TvLazyRow(
                         state = episodeRowState,
                         modifier = Modifier.arvioDpadFocusGroup(),
-                        contentPadding = PaddingValues(start = contentStartPadding, end = 520.dp),
+                        contentPadding = PaddingValues(
+                            start = contentStartPadding,
+                            end = 520.dp,
+                            top = 14.dp,
+                            bottom = 14.dp,
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         itemsIndexed(
@@ -2013,7 +2023,12 @@ private fun DetailsContent(
                         TvLazyRow(
                             state = castRowState,
                             modifier = Modifier.arvioDpadFocusGroup(),
-                            contentPadding = PaddingValues(start = contentStartPadding, end = 120.dp),  // 90dp card + 30dp margin
+                            contentPadding = PaddingValues(
+                                start = contentStartPadding,
+                                end = 120.dp,
+                                top = 10.dp,
+                                bottom = 10.dp,
+                            ),  // 90dp card + focus margin
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             itemsIndexed(
@@ -2061,7 +2076,12 @@ private fun DetailsContent(
                         TvLazyRow(
                             state = reviewRowState,
                             modifier = Modifier.arvioDpadFocusGroup(),
-                            contentPadding = PaddingValues(start = contentStartPadding, end = 350.dp),  // 320dp card + 30dp margin
+                            contentPadding = PaddingValues(
+                                start = contentStartPadding,
+                                end = 350.dp,
+                                top = 14.dp,
+                                bottom = 14.dp,
+                            ),  // 320dp card + focus margin
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             itemsIndexed(
@@ -2110,7 +2130,9 @@ private fun DetailsContent(
                             modifier = Modifier.arvioDpadFocusGroup(),
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
-                                end = if (usePosterCards) 140.dp else 210.dp
+                                end = if (usePosterCards) 140.dp else 210.dp,
+                                top = 14.dp,
+                                bottom = 14.dp,
                             ),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
