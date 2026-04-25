@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -41,6 +43,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -290,25 +293,29 @@ fun WatchlistScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = if (isMobile) 16.dp else AppTopBarContentTopInset)
-                .padding(start = 24.dp, top = 24.dp, end = 48.dp)
+                .padding(top = if (isMobile) 0.dp else AppTopBarContentTopInset)
+                .padding(start = 24.dp, top = if (isMobile) 16.dp else 24.dp, end = 48.dp)
         ) {
-                // Header with pink bookmark icon
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 24.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Bookmark,
-                        contentDescription = null,
-                        tint = Pink,
-                        modifier = Modifier.size(28.dp)
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextPrimary,
+                        modifier = Modifier
+                            .clickable { onBack() }
+                            .padding(end = 16.dp)
+                            .size(28.dp)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "MY WATCHLIST",
-                        style = ArflixTypography.sectionTitle,
-                        color = TextPrimary
+                        text = "Watchlist",
+                        style = ArflixTypography.heroTitle.copy(fontSize = 24.sp),
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f)
                     )
                 }
                 
@@ -416,10 +423,5 @@ fun WatchlistScreen(
             )
         }
 
-        // Persistent back button for phone users (hidden on tablet/TV). Issue #43.
-        com.arflix.tv.ui.components.MobileBackButton(
-            onBack = onBack,
-            modifier = Modifier.align(Alignment.TopStart)
-        )
     }
 }

@@ -375,17 +375,14 @@ class SettingsViewModel @Inject constructor(
                 traktExpiration = traktRepository.getTokenExpirationDate()
             }
 
-            // Load addons immediately to avoid showing 0
-            val addons = streamRepository.installedAddons.first()
             val subtitleOptions = loadSubtitleOptions(defaultSub)
             val audioLanguageOptions = loadAudioLanguageOptions(defaultAudio)
-            val iptvConfig = iptvRepository.observeConfig().first()
             val existingCatalogs = _uiState.value.catalogs.ifEmpty {
                 mediaRepository.getDefaultCatalogConfigs()
             }
 
             val currentState = _uiState.value
-            _uiState.value = SettingsUiState(
+            _uiState.value = currentState.copy(
                 defaultSubtitle = defaultSub,
                 subtitleOptions = subtitleOptions,
                 defaultAudioLanguage = defaultAudio,
@@ -407,23 +404,7 @@ class SettingsViewModel @Inject constructor(
                 accountEmail = accountEmail,
                 isTraktAuthenticated = isTrakt,
                 traktExpiration = traktExpiration,
-                iptvM3uUrl = iptvConfig.m3uUrl,
-                iptvEpgUrl = iptvConfig.epgUrl,
-                iptvPlaylists = iptvConfig.playlists,
-                iptvStalkerUrl = iptvConfig.stalkerPortalUrl,
-                iptvStalkerMac = iptvConfig.stalkerMacAddress,
-                isSelfUpdateSupported = currentState.isSelfUpdateSupported,
-                isCheckingForUpdate = currentState.isCheckingForUpdate,
-                availableAppUpdate = currentState.availableAppUpdate,
-                isAppUpdateAvailable = currentState.isAppUpdateAvailable,
-                isDownloadingAppUpdate = currentState.isDownloadingAppUpdate,
-                appUpdateDownloadProgress = currentState.appUpdateDownloadProgress,
-                downloadedApkPath = currentState.downloadedApkPath,
-                showAppUpdateDialog = currentState.showAppUpdateDialog,
-                showUnknownSourcesDialog = currentState.showUnknownSourcesDialog,
-                appUpdateError = currentState.appUpdateError,
                 catalogs = existingCatalogs,
-                addons = addons,
                 contentLanguage = contentLang,
                 deviceModeOverride = deviceModeOverride,
                 skipProfileSelection = skipProfileSelection,
