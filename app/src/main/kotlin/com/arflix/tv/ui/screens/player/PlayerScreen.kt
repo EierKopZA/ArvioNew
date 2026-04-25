@@ -3170,7 +3170,7 @@ private fun SubtitleMenu(
                                     )
                                 }
                             } else {
-                                itemsIndexed(audioTracks, key = { _, track -> track.id }) { index, track ->
+                                itemsIndexed(audioTracks, key = { _, track -> audioTrackKey(track) }) { index, track ->
                                     // Use track label if available, otherwise full language name
                                     val languageName = getFullLanguageName(track.language)
                                     val trackLabel = track.label?.takeIf { it.isNotBlank() } ?: languageName
@@ -3389,7 +3389,7 @@ private fun SubtitleMenu(
                                 )
                             }
                         } else {
-                            itemsIndexed(audioTracks, key = { _, track -> track.id }) { index, track ->
+                            itemsIndexed(audioTracks, key = { _, track -> audioTrackKey(track) }) { index, track ->
                                 val languageName = getFullLanguageName(track.language)
                                 val trackLabel = track.label?.takeIf { it.isNotBlank() } ?: languageName
                                 val codecInfo = detectAudioCodecLabel(track.codec, trackLabel)
@@ -3637,6 +3637,19 @@ private fun subtitleTrackId(subtitle: Subtitle): String {
     }
     val stableHash = normalizedUrl.hashCode().toUInt().toString(16)
     return "ext_$stableHash"
+}
+
+private fun audioTrackKey(track: AudioTrackInfo): String {
+    return listOf(
+        track.index,
+        track.groupIndex,
+        track.trackIndex,
+        track.language.orEmpty(),
+        track.label.orEmpty(),
+        track.channelCount,
+        track.sampleRate,
+        track.codec.orEmpty(),
+    ).joinToString(separator = "|")
 }
 
 private fun buildExternalSubtitleConfigurations(subtitles: List<Subtitle>): List<MediaItem.SubtitleConfiguration> {
