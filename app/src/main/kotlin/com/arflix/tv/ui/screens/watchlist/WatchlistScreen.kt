@@ -337,7 +337,7 @@ fun WatchlistScreen(
                         TvLazyVerticalGrid(
                             columns = TvGridCells.Fixed(gridColumns),
                             state = gridState,
-                            contentPadding = PaddingValues(top = 0.dp, bottom = 48.dp),
+                            contentPadding = PaddingValues(top = 18.dp, bottom = 56.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalArrangement = Arrangement.spacedBy(24.dp),
                             modifier = Modifier
@@ -372,6 +372,7 @@ fun WatchlistScreen(
                                     width = cardWidth,
                                     isLandscape = !usePosterCards,
                                     logoImageUrl = logoUrl,
+                                    focusedScale = 1f,
                                     onFocused = { focusedGridIndex = index },
                                     onClick = { onNavigateToDetails(item.mediaType, item.id) },
                                     onLongClick = { viewModel.removeFromWatchlist(item) }

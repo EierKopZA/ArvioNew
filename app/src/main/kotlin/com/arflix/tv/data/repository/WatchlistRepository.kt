@@ -237,8 +237,9 @@ class WatchlistRepository @Inject constructor(
 
     /**
      * Reorder the local watchlist to match Trakt's newest-first list.
-     * Adds missing Trakt items, keeps local-only items at the end, and writes
-     * the resulting order to DataStore + in-memory cache.
+     * Mirrors Trakt's newest-first order and drops stale local entries. Keeping
+     * local-only items here lets old bad title-search matches survive forever
+     * after Trakt has the correct IDs.
      */
     suspend fun syncFromTraktOrder(traktItems: List<MediaItem>) = withContext(Dispatchers.IO) {
         if (traktItems.isEmpty()) return@withContext
@@ -247,37 +248,28 @@ class WatchlistRepository @Inject constructor(
         val existingByKey = existing.associateBy { "${it.mediaType}:${it.tmdbId}" }
 
         val ordered = mutableListOf<LocalWatchlistItem>()
-        val seen = mutableSetOf<String>()
 
-        // 1. Put Trakt items first, in Trakt order (already newest-first).
-        for (item in traktItems) {
+        // Trakt items are already newest-first by listed_at.
+        for ((index, item) in traktItems.withIndex()) {
             val typeStr = if (item.mediaType == MediaType.TV) "tv" else "movie"
             val key = "$typeStr:${item.id}"
-            seen.add(key)
             val local = existingByKey[key]
+            val traktOrderAddedAt = System.currentTimeMillis() - index
             ordered.add(
                 local?.copy(
                     title = item.title.ifBlank { local.title },
                     posterPath = item.image.ifBlank { local.posterPath },
-                    backdropPath = item.backdrop ?: local.backdropPath
+                    backdropPath = item.backdrop ?: local.backdropPath,
+                    addedAt = traktOrderAddedAt
                 ) ?: LocalWatchlistItem(
                     tmdbId = item.id,
                     mediaType = typeStr,
                     title = item.title,
                     posterPath = item.image,
                     backdropPath = item.backdrop,
-                    addedAt = System.currentTimeMillis()
+                    addedAt = traktOrderAddedAt
                 )
             )
-        }
-
-        // 2. Append any local-only items at the end (preserve original relative order).
-        for (local in existing) {
-            val key = "${local.mediaType}:${local.tmdbId}"
-            val sameTitleAlreadySynced = ordered.any {
-                it.mediaType == local.mediaType && normalizeTitleForDuplicateCheck(it.title) == normalizeTitleForDuplicateCheck(local.title)
-            }
-            if (key !in seen && !sameTitleAlreadySynced) ordered.add(local)
         }
 
         saveWatchlist(ordered)
@@ -434,16 +426,4 @@ class WatchlistRepository @Inject constructor(
         )
     }
 
-    private fun normalizeTitleForDuplicateCheck(title: String): String {
-        return java.text.Normalizer.normalize(title, java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}+"), "")
-            .lowercase()
-            .replace("&", "and")
-            .replace(Regex("[^a-z0-9]+"), " ")
-            .trim()
-            .removePrefix("the ")
-            .removePrefix("a ")
-            .removePrefix("an ")
-            .replace(" ", "")
-    }
 }
