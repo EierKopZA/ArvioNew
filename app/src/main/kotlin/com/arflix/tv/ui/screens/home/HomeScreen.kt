@@ -2433,7 +2433,7 @@ private fun MobileHomeRowsLayer(
                         },
                         contentType = { _, item -> "${item.mediaType.name}_mobile_card" }
                     ) { index, item ->
-                        if (isRanked) {
+                        if (isRanked && index < 10) {
                             Box(
                                 modifier = Modifier.width(mobileItemWidth)
                             ) {
@@ -2994,7 +2994,7 @@ private fun ContentRow(
                 contentType = { _, item -> "${item.mediaType.name}_card" }
             ) { index, item ->
                 val itemIsFocused = focusedItemFlags[itemKeys[index]] == true
-                if (isRanked) {
+                if (isRanked && index < 10) {
                     // Top 10 rows should use the SAME card sizing as every other row.
                     // The previous layout used giant background numerals and a smaller
                     // embedded card, which made the row feel cramped and inconsistent.
