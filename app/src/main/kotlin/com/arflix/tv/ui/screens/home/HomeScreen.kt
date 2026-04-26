@@ -1074,8 +1074,8 @@ private fun HeroSection(
     val context = LocalContext.current
     val density = LocalDensity.current
     val logoSize = remember(density) {
-        val widthPx = with(density) { 280.dp.roundToPx() }
-        val heightPx = with(density) { 62.dp.roundToPx() }
+        val widthPx = with(density) { 320.dp.roundToPx() }
+        val heightPx = with(density) { 72.dp.roundToPx() }
         widthPx.coerceAtLeast(1) to heightPx.coerceAtLeast(1)
     }
 
@@ -1113,7 +1113,7 @@ private fun HeroSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
-                    modifier = Modifier.height(62.dp),
+                    modifier = Modifier.height(72.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (currentLogoUrl != null) {
@@ -1133,15 +1133,15 @@ private fun HeroSection(
                             contentScale = ContentScale.Fit,
                             alignment = Alignment.CenterStart,
                             modifier = Modifier
-                                .height(62.dp)
-                                .width(280.dp)
+                                .height(72.dp)
+                                .width(320.dp)
                         )
                     } else {
                         // Fallback to title text
                         Text(
                             text = currentItem.title.uppercase(),
                             style = ArflixTypography.heroTitle.copy(
-                                fontSize = 36.sp,
+                                fontSize = 40.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 2.sp,
                                 shadow = textShadow
@@ -1171,7 +1171,7 @@ private fun HeroSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
         // Performance: Use key instead of AnimatedContent for faster transitions
         key(item.id) {
@@ -1231,7 +1231,7 @@ private fun HeroSection(
 
                 // Metadata row: Date | Genre | Duration | IMDb rating
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (displayDate.isNotEmpty()) {
@@ -1328,10 +1328,10 @@ private fun HeroSection(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier
                                 .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "IMDb",
@@ -1380,7 +1380,7 @@ private fun HeroSection(
                 }
                 } // end else (non-IPTV metadata)
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Overview text (EPG data for IPTV, synopsis for movies/shows)
                 val displayOverview = (overviewOverride ?: currentItem.overview)
@@ -1391,7 +1391,7 @@ private fun HeroSection(
                     .trim()
                     .ifBlank { "No description available." }
 
-                val overviewMaxHeight = 52.dp
+                val overviewMaxHeight = 56.dp
                 Box(
                     modifier = Modifier
                         .width(360.dp)
@@ -1400,9 +1400,9 @@ private fun HeroSection(
                     Text(
                         text = displayOverview,
                         style = ArflixTypography.body.copy(
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Normal,
-                            lineHeight = 15.sp,
+                            lineHeight = 16.sp,
                             shadow = textShadow
                         ),
                         color = Color.White.copy(alpha = 0.9f),
@@ -1482,7 +1482,7 @@ private fun HomeHeroLayer(
         val contentRowBottomPadding = 12.dp
         val contentRowTopPadding = contentRowHeight + contentRowBottomPadding
         val buttonsBottomPadding = contentRowTopPadding - 10.dp
-        val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 32.dp else 40.dp
+        val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 46.dp else 58.dp
 
         Box(
             modifier = Modifier

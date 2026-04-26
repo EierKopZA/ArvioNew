@@ -1548,7 +1548,7 @@ private fun DetailsContent(
         val contentRowBottomPadding = 12.dp
         val contentRowTopPadding = contentRowHeight + contentRowBottomPadding
         val buttonsBottomPadding = contentRowTopPadding - 10.dp
-        val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 56.dp else 64.dp
+        val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 70.dp else 82.dp
 
         Box(
             modifier = Modifier
@@ -1569,7 +1569,7 @@ private fun DetailsContent(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
-                        modifier = Modifier.height(62.dp),
+                        modifier = Modifier.height(72.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (logoUrl != null) {
@@ -1579,14 +1579,14 @@ private fun DetailsContent(
                                 contentScale = ContentScale.Fit,
                                 alignment = Alignment.CenterStart,
                                 modifier = Modifier
-                                    .height(62.dp)
-                                    .width(280.dp)
+                                    .height(72.dp)
+                                    .width(320.dp)
                             )
                         } else {
                             Text(
                                 text = item.title.uppercase(),
                                 style = ArflixTypography.heroTitle.copy(
-                                    fontSize = 36.sp,
+                                    fontSize = 40.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 2.sp,
                                     shadow = textShadow
@@ -1616,7 +1616,7 @@ private fun DetailsContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 val genreText = genres.take(2).joinToString(" / ").ifEmpty {
                     if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
@@ -1627,7 +1627,7 @@ private fun DetailsContent(
                 val rating = item.imdbRating.ifEmpty { item.tmdbRating }
                 val ratingValue = parseRatingValue(rating)
                 val budgetText = budget?.trim()?.takeIf { it.isNotEmpty() && item.mediaType == MediaType.MOVIE }
-                val overviewMaxHeight = if (isCompactHeight) 50.dp else 52.dp
+                val overviewMaxHeight = if (isCompactHeight) 54.dp else 56.dp
 
                 val separatorStyle = ArflixTypography.caption.copy(
                     fontSize = 13.sp,
@@ -1635,7 +1635,7 @@ private fun DetailsContent(
                 )
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -1678,10 +1678,10 @@ private fun DetailsContent(
                         Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier
                                 .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "IMDb",
@@ -1701,10 +1701,10 @@ private fun DetailsContent(
                         Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier
                                 .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "MAL",
@@ -1733,7 +1733,7 @@ private fun DetailsContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 val displayOverview = item.overview
 
@@ -1745,9 +1745,9 @@ private fun DetailsContent(
                     Text(
                         text = displayOverview,
                         style = ArflixTypography.body.copy(
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Normal,
-                            lineHeight = 15.sp,
+                            lineHeight = 16.sp,
                             shadow = textShadow
                         ),
                         color = Color.White.copy(alpha = 0.9f),
