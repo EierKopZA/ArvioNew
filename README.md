@@ -56,8 +56,70 @@ Note: If you mean **DTX**, ARVIO supports **DTS-family audio formats** (DTS/DTS-
 [<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="180">](https://play.google.com/store/apps/details?id=com.arvio.tv&pcampaignid=web_share)
 
 ### Direct Download
-[Download APK](https://github.com/ProdigyV21/ARVIO/releases/latest) from the Releases page.
+[Download APK](https://gitlab.com/arvio1/ARVIO/-/releases) from the Releases page.
 
+## Build And Run
+
+Requirements:
+- Android Studio or Android SDK command-line tools
+- JDK 17
+- Android SDK 35
+
+Use the tracked POSIX Gradle wrapper from Linux, macOS, Git Bash, or WSL:
+
+```bash
+./gradlew :app:assemblePlayDebug
+./gradlew :app:assembleSideloadDebug
+```
+
+The repository does not track `gradlew.bat`. On Windows, run `./gradlew` from Git Bash/WSL, or regenerate the Windows wrapper locally with Gradle if you need PowerShell or Command Prompt support. Keep generated `gradlew.bat` local.
+
+Install a debug build on a connected Android TV, Fire TV, emulator, phone, or tablet:
+
+```bash
+./gradlew :app:installPlayDebug
+./gradlew :app:installSideloadDebug
+```
+
+For network ADB devices:
+
+```bash
+adb connect <device-ip>:5555
+adb install -r app/build/outputs/apk/sideload/debug/app-sideload-debug.apk
+```
+
+Build variants:
+- `play`: Play Store build, self-update and Cloudstream runtime disabled.
+- `sideload`: Direct APK build, self-update and Cloudstream runtime enabled.
+- `debug`: development build.
+- `staging`: release-like build signed with the debug keystore for upgrade testing.
+- `release`: production build. If `keystore.properties` is missing, the build falls back to debug signing; use a real keystore for distribution.
+
+## Local Configuration
+
+Cloud sync, Google sign-in, and Supabase-backed auth need local secrets. Copy the defaults file and fill in real values:
+
+```bash
+cp secrets.defaults.properties secrets.properties
+```
+
+`secrets.properties` is ignored and should not be committed. Supabase Edge Functions live in `supabase/functions/`; deploy the proxy/auth functions there when using ARVIO Cloud or server-side TMDB/Trakt access.
+
+For signed release builds, copy the keystore template and fill in local signing values:
+
+```bash
+cp keystore.properties.template keystore.properties
+```
+
+`keystore.properties` and keystore files are ignored and should stay private.
+
+## Live TV Data
+
+The old checked-in `epg_sample.xml` was removed because it was a large local sample file. Live TV does not need that repository file. Configure your own M3U playlist and optional XMLTV/EPG URL inside the app settings. Xtream-style host/user/password input can derive playlist and EPG URLs automatically.
+
+## Release Checks
+
+The old GitHub workflow and CSV release gate were removed. Before publishing a build, manually smoke-test at least startup, profile switching, playback, stream fallback, subtitle/audio switching, IPTV/EPG loading, addon add/remove, search, settings navigation, background sync, and repeated player open/close on the device classes you support.
 
 ## Star History
 

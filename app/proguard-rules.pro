@@ -1,5 +1,5 @@
 # ============================================
-# Arflix TV ProGuard/R8 Rules
+# ARVIO ProGuard/R8 Rules
 # Production-ready optimization rules
 # ============================================
 

@@ -16,10 +16,14 @@ gen/
 out/
 release/
 
+# Repository-local automation not used by this distribution
+.github/workflows/
+
 # Gradle files
 .gradle/
 build/
 **/build/
+gradlew.bat
 
 # Local configuration file (sdk path, etc)
 local.properties
@@ -94,6 +98,8 @@ upload.keystore
 
 # Internal planning artifacts (not needed for OSS runtime/build)
 .planning/
+.claude/
+.codex
 
 # Mac files
 .DS_Store
@@ -122,6 +128,9 @@ supabase/.temp/
 supabase/static/
 supabase/functions/tv-auth-web/
 
+# Netlify local state
+**/.netlify/
+
 # Screenshots and debug images
 *.png
 *.jpg
@@ -144,6 +153,9 @@ app_crash*.txt
 
 # Window dumps
 window_dump*.xml
+
+# Large local EPG samples
+epg_sample.xml
 
 # Performance plans and status
 IMPLEMENTATION_STATUS.md
