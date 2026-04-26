@@ -2490,7 +2490,7 @@ private fun TvHomeRowsLayer(
     // ── Focus-row stabilizer ──
     // Track the focused row by its category ID (stable) rather than integer
     // index. When new catalogs are inserted above the focused row (e.g.,
-    // "Favorite TV" or custom Trakt lists loading), the integer index of the
+    // custom Trakt lists loading), the integer index of the
     // focused row shifts but its ID stays the same. Without this correction
     // the LazyColumn would scroll to the wrong row and the focus highlight
     // would visually "trip" to a different catalog until the user presses
@@ -2556,7 +2556,7 @@ private fun TvHomeRowsLayer(
         // Only scroll the LazyColumn in response to actual user D-pad navigation,
         // NOT when categories change during loading. The previous implementation
         // scrolled on every `targetIndex` change, which meant when `publishMerged()`
-        // inserted new rows (Favorite TV, custom catalogs) and the focus-stabilizer
+        // inserted new rows (custom catalogs) and the focus-stabilizer
         // updated `currentRowIndex`, the viewport would jump to the new index — even
         // though the user hadn't pressed anything. This caused the visible "trip"
         // where the screen would suddenly show a different row than expected.

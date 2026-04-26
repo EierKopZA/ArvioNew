@@ -443,39 +443,6 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    private suspend fun buildFavoriteTvCategory(): Category? {
-        // Use non-blocking memory read first; fall back to mutex-guarded disk read
-        val snapshot = iptvRepository.getMemoryCachedSnapshot()
-            ?: return null
-        val favoriteIds = snapshot.favoriteChannels.toHashSet()
-        if (favoriteIds.isEmpty()) return null
-
-        // Re-derive now/next from cached programs so "Now" shifts when a program ends.
-        // This is free (no network) — just recalculates which program is live.
-        val favoriteChannelIds = snapshot.channels
-            .filter { favoriteIds.contains(it.id) }
-            .map { it.id }
-            .toSet()
-        iptvRepository.reDeriveCachedNowNext(favoriteChannelIds)
-        // Re-read snapshot after re-derive to get updated nowNext
-        val freshSnapshot = iptvRepository.getMemoryCachedSnapshot() ?: snapshot
-
-        // Iterate channels in their original list order (matching TV page order)
-        val items = freshSnapshot.channels
-            .filter { favoriteIds.contains(it.id) }
-            .mapNotNull { channel ->
-                val epg = freshSnapshot.nowNext[channel.id]
-                iptvChannelToMediaItem(channel, epg)
-            }
-        if (items.isEmpty()) return null
-
-        return Category(
-            id = FAVORITE_TV_CATEGORY_ID,
-            title = "Favorite TV",
-            items = items
-        )
-    }
-
     private fun isCustomCatalogConfig(cfg: CatalogConfig): Boolean {
         if (cfg.kind == CatalogKind.COLLECTION || cfg.kind == CatalogKind.COLLECTION_RAIL) {
             return false
@@ -507,86 +474,6 @@ class HomeViewModel @Inject constructor(
                 .flatMap { it.items.asSequence() }
                 .firstOrNull { !it.isPlaceholder }
             ?: categories.firstOrNull()?.items?.firstOrNull()
-    }
-
-    /**
-     * Refresh the Favorite TV category's EPG data (Now/Next display).
-     * @param networkFetch If true, also fetch fresh EPG from the Xtream short EPG API.
-     *                     If false, only re-derive from cached program data (free, no network).
-     */
-    private fun refreshFavoriteTvEpg(networkFetch: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val categories = _uiState.value.categories
-                val favTvIndex = categories.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
-                if (favTvIndex < 0) return@launch
-
-                val currentFavTv = categories[favTvIndex]
-                // Collect channel IDs from current items
-                val channelIds = currentFavTv.items.mapNotNull { getIptvChannelId(it) }.toSet()
-                if (channelIds.isEmpty()) return@launch
-
-                // Optionally do network refresh first
-                if (networkFetch) {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastEpgNetworkRefreshMs >= EPG_NETWORK_REFRESH_MS) {
-                        lastEpgNetworkRefreshMs = now
-                        runCatching { iptvRepository.refreshEpgForChannels(channelIds) }
-                    }
-                }
-
-                // Re-derive now/next from (possibly updated) cached data
-                iptvRepository.reDeriveCachedNowNext(channelIds)
-
-                // Rebuild the category with updated EPG text
-                val freshCategory = withContext(Dispatchers.IO) {
-                    runCatching { buildFavoriteTvCategory() }.getOrNull()
-                } ?: return@launch
-
-                // Check if anything actually changed to avoid needless recomposition
-                val oldOverviews = currentFavTv.items.map { it.overview }
-                val newOverviews = freshCategory.items.map { it.overview }
-                if (oldOverviews == newOverviews) return@launch
-
-                // Apply user-renamed title if applicable
-                val cfg = savedCatalogById[FAVORITE_TV_CATEGORY_ID]
-                val titled = if (cfg != null && cfg.title.isNotBlank() && cfg.title != freshCategory.title) {
-                    freshCategory.copy(title = cfg.title)
-                } else {
-                    freshCategory
-                }
-
-                withContext(Dispatchers.Main.immediate) {
-                    val current = _uiState.value.categories.toMutableList()
-                    val idx = current.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
-                    if (idx >= 0) {
-                        current[idx] = titled
-                        _uiState.value = _uiState.value.copy(categories = current)
-                        System.err.println("[EPG-Refresh] Updated Favorite TV row (network=$networkFetch)")
-                    }
-                }
-            } catch (e: Exception) {
-                System.err.println("[EPG-Refresh] Error: ${e.message}")
-            }
-        }
-    }
-
-    /** Start periodic EPG refresh for the Favorite TV home row. */
-    private fun startEpgRefreshTimer() {
-        epgRefreshJob?.cancel()
-        epgRefreshJob = viewModelScope.launch {
-            // Initial delay — let home data + IPTV warmup finish first
-            delay(if (isLowRamDevice) 10_000L else 5_000L)
-            var tickCount = 0L
-            while (true) {
-                tickCount++
-                // Every tick (60s): local re-derive
-                // Every 5th tick (5 min): also do network refresh
-                val doNetwork = tickCount % ((EPG_NETWORK_REFRESH_MS / EPG_LOCAL_REFRESH_MS).coerceAtLeast(1)) == 0L
-                refreshFavoriteTvEpg(networkFetch = doNetwork)
-                delay(EPG_LOCAL_REFRESH_MS)
-            }
-        }
     }
 
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -628,7 +515,7 @@ class HomeViewModel @Inject constructor(
                 .getParameterized(MutableList::class.java, Category::class.java)
                 .type
             val parsed: List<Category> = gson.fromJson(json, type) ?: emptyList()
-            parsed.filter { it.items.isNotEmpty() }
+            parsed.filter { it.id != FAVORITE_TV_CATEGORY_ID && it.items.isNotEmpty() }
         }.getOrDefault(emptyList())
     }
     // IO concurrency for network requests (logo fetches, catalog loads, etc.)
@@ -642,14 +529,6 @@ class HomeViewModel @Inject constructor(
     private val WATCHED_BADGES_REFRESH_MS = 90_000L
     private var lastWatchedBadgesRefreshMs: Long = 0L
     private val HOME_PLACEHOLDER_ITEM_COUNT = 8
-
-    // EPG refresh intervals for Favorite TV row
-    /** Local re-derive: shift now/next from cached programs when a program ends. */
-    private val EPG_LOCAL_REFRESH_MS = 60_000L
-    /** Network refresh: fetch fresh short EPG for favorite channels (Xtream only). */
-    private val EPG_NETWORK_REFRESH_MS = 5 * 60_000L
-    private var epgRefreshJob: Job? = null
-    private var lastEpgNetworkRefreshMs: Long = 0L
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -1142,36 +1021,15 @@ class HomeViewModel @Inject constructor(
         }
         viewModelScope.launch(Dispatchers.IO) {
             delay(if (isLowRamDevice) 4_000L else 2_500L)
-            // Warm IPTV channels + EPG in background after startup settles.
-            // First load from disk cache (fast), then do targeted network EPG refresh
-            // for favorite channels so home screen shows current program info.
+            // Warm IPTV channels in background after startup settles so the TV
+            // page can still open quickly, without publishing favorite channels
+            // as a Home catalog row.
             try {
                 iptvRepository.prefetchFreshStartupData()
-                val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: return@launch
-                // Phase 2: Refresh EPG for favorite channels (lightweight network call)
-                val snap = iptvRepository.getMemoryCachedSnapshot()
-                if (snap != null) {
-                    val favIds = snap.favoriteChannels.toHashSet()
-                    val favChannelIds = snap.channels
-                        .filter { favIds.contains(it.id) }
-                        .map { it.id }
-                        .toSet()
-                    if (favChannelIds.isNotEmpty()) {
-                        val refreshed = runCatching { iptvRepository.refreshEpgForChannels(favChannelIds) }.getOrNull()
-                        if (refreshed == null) {
-                            // refreshEpgForChannels failed (not Xtream?) — do full EPG reload
-                            runCatching { iptvRepository.loadSnapshot(forcePlaylistReload = false, forceEpgReload = true) }
-                        }
-                        // Rebuild Favorite TV row with fresh EPG data
-                        refreshFavoriteTvEpg(networkFetch = false)
-                    }
-                }
             } catch (e: Exception) {
                 System.err.println("HomeVM: IPTV warmup failed: ${e.message}")
             }
         }
-        // Periodically refresh EPG data for Favorite TV row on home screen
-        startEpgRefreshTimer()
         viewModelScope.launch {
             catalogRepository.observeCatalogs()
                 .map { catalogs ->
@@ -1483,11 +1341,6 @@ class HomeViewModel @Inject constructor(
                 val currentBaseCategories = _uiState.value.categories.filter {
                     it.id != "continue_watching" && !it.id.startsWith("collection_row_")
                 }
-                // Build Favorite TV category from IPTV cache (runs on IO)
-                val favoriteTvCategory = withContext(Dispatchers.IO) {
-                    runCatching { buildFavoriteTvCategory() }.getOrNull()
-                }
-
                 var categories = withContext(networkDispatcher) {
                     val baseCategories = runCatching {
                         mediaRepository.getHomeCategories()
@@ -1496,13 +1349,7 @@ class HomeViewModel @Inject constructor(
                     val baseById = LinkedHashMap<String, Category>().apply {
                         currentBaseCategories.forEach { put(it.id, it) }
                         baseCategories.forEach { put(it.id, it) }
-                        // Inject Favorite TV so catalog ordering picks it up, or remove
-                        // stale skeleton/placeholder if no favorites exist for this profile.
-                        if (favoriteTvCategory != null) {
-                            put(FAVORITE_TV_CATEGORY_ID, favoriteTvCategory)
-                        } else {
-                            remove(FAVORITE_TV_CATEGORY_ID)
-                        }
+                        remove(FAVORITE_TV_CATEGORY_ID)
                     }
 
                     // Split preinstalled into TMDB-based and MDBList-based
@@ -1614,8 +1461,8 @@ class HomeViewModel @Inject constructor(
                     // for ALL catalog types (preinstalled, MDBList, custom/Trakt).
                     // The previous code added all preinstalled first, then appended
                     // custom catalogs at the end — which ignored the user's configured
-                    // ordering and always put Favorite TV before custom catalogs
-                    // regardless of where the user placed it.
+                    // ordering and always put custom catalogs after the
+                    // preinstalled rows regardless of where the user placed them.
                     val allById = LinkedHashMap<String, Category>()
                     // Seed with preinstalled data
                     preinstalled.forEach { allById[it.id] = it }
@@ -1885,38 +1732,6 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                // Immediately refresh EPG for Favorite TV row if the cached data
-                // produced "Live TV" fallback (stale/empty EPG).
-                // The background init warmup may also be refreshing EPG concurrently —
-                // this is a fast-path that fires as soon as categories are set.
-                val favTvCat = _uiState.value.categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
-                if (favTvCat != null && favTvCat.items.any { it.overview == "Live TV" }) {
-                    viewModelScope.launch(Dispatchers.IO) {
-                        delay(if (isLowRamDevice) 4_000L else 2_500L)
-                        val channelIds = favTvCat.items.mapNotNull { getIptvChannelId(it) }.toSet()
-                        if (channelIds.isNotEmpty()) {
-                            // Try lightweight Xtream short EPG first
-                            val refreshed = runCatching { iptvRepository.refreshEpgForChannels(channelIds) }.getOrNull()
-                            if (refreshed == null) {
-                                // Not Xtream or failed — defer full EPG reload to the normal
-                                // background warmup path instead of competing with Home startup.
-                            }
-                            refreshFavoriteTvEpg(networkFetch = false)
-                            // Also update hero if it's an IPTV item showing stale EPG
-                            val currentHero = _uiState.value.heroItem
-                            if (currentHero != null && isIptvItem(currentHero) && currentHero.overview == "Live TV") {
-                                val updatedCat = _uiState.value.categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
-                                val updatedHero = updatedCat?.items?.firstOrNull { it.id == currentHero.id }
-                                if (updatedHero != null) {
-                                    withContext(Dispatchers.Main.immediate) {
-                                        _uiState.value = _uiState.value.copy(heroItem = updatedHero)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Custom catalogs are now loaded in the bulk path above (parallel
                 // fetch alongside TMDB + MDBList). No need for incremental loading
                 // which caused the slow one-by-one appearance and the viewport "trip"
@@ -2025,19 +1840,6 @@ class HomeViewModel @Inject constructor(
                     } else {
                         // Append new custom catalog at end — no mid-list insert
                         currentCategories.add(freshData)
-                        anyChange = true
-                    }
-                }
-
-                // Also update Favorite TV if it exists in base but not yet in displayed list
-                val favTv = baseById[FAVORITE_TV_CATEGORY_ID]
-                if (favTv != null && favTv.items.isNotEmpty()) {
-                    val favIdx = currentCategories.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
-                    if (favIdx >= 0) {
-                        currentCategories[favIdx] = favTv
-                        anyChange = true
-                    } else {
-                        currentCategories.add(favTv)
                         anyChange = true
                     }
                 }
@@ -2235,6 +2037,7 @@ class HomeViewModel @Inject constructor(
         }
 
         savedCatalogs.forEach { cfg ->
+            if (cfg.id == FAVORITE_TV_CATEGORY_ID) return@forEach
             if (isCollectionTileConfig(cfg)) return@forEach
             rows.add(
                 Category(

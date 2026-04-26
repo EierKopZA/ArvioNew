@@ -339,7 +339,7 @@ class CatalogRepository @Inject constructor(
             }.toMutableList()
 
             // Insert missing preinstalled catalogs at their intended default position
-            // so new catalogs (like "Favorite TV") appear where they were defined,
+            // so new catalogs appear where they were defined,
             // but only re-sort when there are actually new catalogs to add.
             val missingPreinstalled = effectiveDefaults.filter { pre ->
                 kept.none { it.id == pre.id }

@@ -709,6 +709,8 @@ private fun CollectionItemsGrid(
                     logoImageUrl = cardLogoUrl,
                     showTitle = true,
                     titleMaxLines = if (usePosterCards) 2 else 1,
+                    focusedScale = 1f,
+                    pressedScale = 1f,
                     onFocused = {
                         onItemFocused(item)
                         if (items.size > 10 && index >= items.size - 2) onNearEnd()
