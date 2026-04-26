@@ -68,7 +68,6 @@ import com.arflix.tv.util.LocalHasTouchScreen
 import com.arflix.tv.util.LocalAppLanguage
 import com.arflix.tv.util.detectDeviceType
 import com.arflix.tv.util.deviceHasTouchScreen
-import com.arflix.tv.util.localizedAppContext
 import com.arflix.tv.util.settingsDataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -232,9 +231,6 @@ class MainActivity : ComponentActivity() {
                     prefs[stringPreferencesKey("profile_${profileId}_content_language")] ?: "en-US"
                 }
             }.collectAsStateWithLifecycle(initialValue = "en-US")
-            val localizedContext = remember(appLanguage) {
-                localizedAppContext(this@MainActivity, appLanguage)
-            }
             val deviceType = when (deviceModeOverride) {
                 "tv" -> DeviceType.TV
                 "tablet" -> DeviceType.TABLET
@@ -246,7 +242,6 @@ class MainActivity : ComponentActivity() {
             // (prevents tablet/phone UI on devices with only D-pad input)
             val effectiveDeviceType = if (!hasTouchScreen && deviceType != DeviceType.TV) DeviceType.TV else deviceType
             CompositionLocalProvider(
-                LocalContext provides localizedContext,
                 LocalAppLanguage provides appLanguage,
                 LocalDeviceType provides effectiveDeviceType,
                 LocalHasTouchScreen provides hasTouchScreen,
