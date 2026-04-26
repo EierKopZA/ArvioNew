@@ -11,6 +11,8 @@ data class Profile(
     val avatarColor: Long = ProfileColors.random(),
     val avatarId: Int = 0, // 0 = legacy letter+color, 1-24 = Compose-drawn avatar
     val isKidsProfile: Boolean = false,
+    val pin: String? = null, // 4-5 digit PIN, null if not set
+    val isLocked: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val lastUsedAt: Long = System.currentTimeMillis()
 )
