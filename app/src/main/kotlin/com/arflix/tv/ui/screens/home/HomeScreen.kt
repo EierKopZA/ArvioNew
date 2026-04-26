@@ -57,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
@@ -64,7 +65,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -87,7 +87,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
@@ -623,6 +622,14 @@ fun HomeScreen(
         snapshotFlow { focusState.currentRowIndex }
             .distinctUntilChanged()
             .collectLatest { rowIndex ->
+                val idleDelay = fastScrollThresholdMs -
+                    (SystemClock.elapsedRealtime() - focusState.lastNavEventTime)
+                if (idleDelay > 0L) {
+                    delay(idleDelay)
+                }
+                if (focusState.isSidebarFocused || focusState.currentRowIndex != rowIndex) {
+                    return@collectLatest
+                }
                 viewModel.preloadLogosForCategory(rowIndex, prioritizeVisible = true)
                 viewModel.preloadLogosForCategory(rowIndex + 1, prioritizeVisible = false)
             }
@@ -676,6 +683,17 @@ fun HomeScreen(
             .distinctUntilChanged()
             .collectLatest { (rowIndex, itemIndex, sidebarFocused) ->
                 if (sidebarFocused) return@collectLatest
+                val idleDelay = fastScrollThresholdMs -
+                    (SystemClock.elapsedRealtime() - focusState.lastNavEventTime)
+                if (idleDelay > 0L) {
+                    delay(idleDelay)
+                }
+                if (focusState.isSidebarFocused ||
+                    focusState.currentRowIndex != rowIndex ||
+                    focusState.currentItemIndex != itemIndex
+                ) {
+                    return@collectLatest
+                }
                 val category = latestDisplayCategories.getOrNull(rowIndex) ?: return@collectLatest
                 viewModel.maybeLoadNextPageForCategory(category.id, itemIndex)
             }
@@ -2544,15 +2562,6 @@ private fun TvHomeRowsLayer(
     }
     val localCurrentRowIndex = (currentRowIndex - rowWindowStart)
         .coerceIn(0, (renderedCategories.size - 1).coerceAtLeast(0))
-    var isFastScrolling by remember { mutableStateOf(false) }
-    LaunchedEffect(focusState.lastNavEventTime) {
-        val anchor = focusState.lastNavEventTime
-        isFastScrolling = true
-        delay(fastScrollThresholdMs)
-        if (focusState.lastNavEventTime == anchor) {
-            isFastScrolling = false
-        }
-    }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -2603,7 +2612,7 @@ private fun TvHomeRowsLayer(
                     deltaPx = deltaPx,
                     durationMillis = if (jumpDistance == 1) 190 else 220
                 )
-                if (listState.firstVisibleItemIndex != targetIndex || listState.firstVisibleItemScrollOffset != 0) {
+                if (listState.firstVisibleItemIndex != targetIndex) {
                     listState.scrollToItem(index = targetIndex, scrollOffset = 0)
                 }
             } else {
@@ -2650,7 +2659,8 @@ private fun TvHomeRowsLayer(
                             usePosterCards = usePosterCards,
                             startPadding = contentStartPadding,
                             focusedItemIndex = if (!focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex) focusState.currentItemIndex else -1,
-                            isFastScrolling = isFastScrolling,
+                            lastNavEventTime = focusState.lastNavEventTime,
+                            fastScrollThresholdMs = fastScrollThresholdMs,
                             onItemClick = onItemClick,
                             onItemFocused = { item, itemIdx ->
                                 focusState.currentRowIndex = actualRowIndex
@@ -2809,7 +2819,8 @@ private fun ContentRow(
     usePosterCards: Boolean = false,
     startPadding: androidx.compose.ui.unit.Dp = 12.dp,
     focusedItemIndex: Int,
-    isFastScrolling: Boolean,
+    lastNavEventTime: Long,
+    fastScrollThresholdMs: Long,
     onItemClick: (MediaItem) -> Unit,
     onItemFocused: (MediaItem, Int) -> Unit
 ) {
@@ -2837,9 +2848,6 @@ private fun ContentRow(
     }
     val itemsPerPage = fallbackItemsPerPage
     val totalItems = category.items.size
-    val itemKeys = remember(category.items) {
-        category.items.map(::homeRowItemKey)
-    }
     val maxFirstIndex = remember(totalItems, itemsPerPage) {
         (totalItems - itemsPerPage.coerceAtLeast(1)).coerceAtLeast(0)
     }
@@ -2876,24 +2884,13 @@ private fun ContentRow(
     // Use smooth scroll (animated) for D-pad moves to avoid abrupt jumps.
     var lastScrollIndex by remember { mutableIntStateOf(-1) }
     var lastScrollOffset by remember { mutableIntStateOf(-1) }
-    val focusedItemFlags = remember(category.id) { mutableStateMapOf<String, Boolean>() }
-    var activeFocusedItemKey by remember(category.id) { mutableStateOf<String?>(null) }
+    val focusedItemIndexState = rememberUpdatedState(focusedItemIndex)
+    val isCurrentRowState = rememberUpdatedState(isCurrentRow)
     LaunchedEffect(isCurrentRow) {
         if (!isCurrentRow) {
             lastScrollIndex = -1
             lastScrollOffset = -1
         }
-    }
-    LaunchedEffect(itemKeys, isCurrentRow, focusedItemIndex) {
-        val desiredKey = itemKeys.getOrNull(focusedItemIndex).takeIf { isCurrentRow }
-        if (activeFocusedItemKey == desiredKey) return@LaunchedEffect
-        activeFocusedItemKey?.let { previousKey ->
-            focusedItemFlags[previousKey] = false
-        }
-        if (desiredKey != null) {
-            focusedItemFlags[desiredKey] = true
-        }
-        activeFocusedItemKey = desiredKey
     }
     LaunchedEffect(scrollTargetIndex, isCurrentRow, focusedItemIndex) {
         if (!isCurrentRow || scrollTargetIndex < 0) return@LaunchedEffect
@@ -2928,6 +2925,8 @@ private fun ContentRow(
             targetOutsideViewport ||
             offsetDelta > 1
         ) {
+            val isFastScrolling = lastNavEventTime > 0L &&
+                (SystemClock.elapsedRealtime() - lastNavEventTime) <= fastScrollThresholdMs
             val deltaPx = ((scrollTargetIndex - currentFirstIndex) * itemSpanPx) + (extraOffset - currentFirstOffset)
             rowState.animateHomeScrollDelta(
                 deltaPx = deltaPx,
@@ -2937,10 +2936,8 @@ private fun ContentRow(
                     else -> 135
                 }
             )
-            if (
-                rowState.firstVisibleItemIndex != scrollTargetIndex ||
-                kotlin.math.abs(rowState.firstVisibleItemScrollOffset - extraOffset) > 2
-            ) {
+            val visibleAfterScroll = rowState.layoutInfo.visibleItemsInfo.any { it.index == focusedItemIndex }
+            if (!visibleAfterScroll) {
                 rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
             }
         } else {
@@ -2993,58 +2990,91 @@ private fun ContentRow(
                 },
                 contentType = { _, item -> "${item.mediaType.name}_card" }
             ) { index, item ->
-                val itemIsFocused = focusedItemFlags[itemKeys[index]] == true
-                if (isRanked && index < 10) {
-                    // Top 10 rows should use the SAME card sizing as every other row.
-                    // The previous layout used giant background numerals and a smaller
-                    // embedded card, which made the row feel cramped and inconsistent.
-                    // Use a normal card and place a premium gold rank badge in the
-                    // top-right corner instead.
-                    val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
-                    Box(
-                        modifier = Modifier.width(itemWidth)
-                    ) {
-                        ArvioMediaCard(
-                            item = item,
-                            width = itemWidth,
-                            isLandscape = !effectivePosterMode,
-                            logoImageUrl = cardLogoUrl,
-                            showProgress = false,
-                            showTitle = isCollectionRow && !item.collectionHideTitle,
-                            isFocusedOverride = itemIsFocused,
-                            enableSystemFocus = false,
-                            onFocused = { onItemFocused(item, index) },
-                            onClick = { onItemClick(item) },
-                        )
-
-                        TopRankRibbon(
-                            rank = index + 1,
-                            isFocused = itemIsFocused,
-                            compact = !effectivePosterMode,
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .zIndex(2f)
-                                .padding(start = 8.dp)
-                        )
-                    }
-                } else {
-                    // Standard Card - keep width aligned with scroll math
-                    val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
-                    ArvioMediaCard(
-                        item = item,
-                        width = itemWidth,
-                        isLandscape = !effectivePosterMode,
-                        logoImageUrl = cardLogoUrl,
-                        showProgress = isContinueWatching,
-                        showTitle = isCollectionRow && !item.collectionHideTitle,
-                        isFocusedOverride = itemIsFocused,
-                        enableSystemFocus = false,
-                        onFocused = { onItemFocused(item, index) },
-                        onClick = { onItemClick(item) },
-                    )
-                }
+                HomeRowCardItem(
+                    item = item,
+                    index = index,
+                    itemWidth = itemWidth,
+                    isLandscape = !effectivePosterMode,
+                    isRanked = isRanked,
+                    isCollectionRow = isCollectionRow,
+                    isContinueWatching = isContinueWatching,
+                    cardLogoUrls = cardLogoUrls,
+                    focusedItemIndexState = focusedItemIndexState,
+                    isCurrentRowState = isCurrentRowState,
+                    onItemClick = onItemClick,
+                    onItemFocused = onItemFocused
+                )
             }
             }  // Close TvLazyRow
         }  // Close Box
     }  // Close Column
+}
+
+@Composable
+private fun HomeRowCardItem(
+    item: MediaItem,
+    index: Int,
+    itemWidth: androidx.compose.ui.unit.Dp,
+    isLandscape: Boolean,
+    isRanked: Boolean,
+    isCollectionRow: Boolean,
+    isContinueWatching: Boolean,
+    cardLogoUrls: Map<String, String>,
+    focusedItemIndexState: State<Int>,
+    isCurrentRowState: State<Boolean>,
+    onItemClick: (MediaItem) -> Unit,
+    onItemFocused: (MediaItem, Int) -> Unit
+) {
+    val itemIsFocused by remember(index) {
+        derivedStateOf { isCurrentRowState.value && focusedItemIndexState.value == index }
+    }
+    val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
+
+    if (isRanked && index < 10) {
+        // Top 10 rows should use the SAME card sizing as every other row.
+        // The previous layout used giant background numerals and a smaller
+        // embedded card, which made the row feel cramped and inconsistent.
+        // Use a normal card and place a premium gold rank badge in the
+        // top-right corner instead.
+        Box(
+            modifier = Modifier.width(itemWidth)
+        ) {
+            ArvioMediaCard(
+                item = item,
+                width = itemWidth,
+                isLandscape = isLandscape,
+                logoImageUrl = cardLogoUrl,
+                showProgress = false,
+                showTitle = isCollectionRow && !item.collectionHideTitle,
+                isFocusedOverride = itemIsFocused,
+                enableSystemFocus = false,
+                onFocused = { onItemFocused(item, index) },
+                onClick = { onItemClick(item) },
+            )
+
+            TopRankRibbon(
+                rank = index + 1,
+                isFocused = itemIsFocused,
+                compact = isLandscape,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .zIndex(2f)
+                    .padding(start = 8.dp)
+            )
+        }
+    } else {
+        // Standard Card - keep width aligned with scroll math
+        ArvioMediaCard(
+            item = item,
+            width = itemWidth,
+            isLandscape = isLandscape,
+            logoImageUrl = cardLogoUrl,
+            showProgress = isContinueWatching,
+            showTitle = isCollectionRow && !item.collectionHideTitle,
+            isFocusedOverride = itemIsFocused,
+            enableSystemFocus = false,
+            onFocused = { onItemFocused(item, index) },
+            onClick = { onItemClick(item) },
+        )
+    }
 }
