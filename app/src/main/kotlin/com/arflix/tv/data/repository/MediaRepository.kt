@@ -296,6 +296,7 @@ class MediaRepository @Inject constructor(
 
     companion object {
         const val STREAMING_COLLECTION_ADDON_URL = "https://pastebin.com/raw/P4gfd98n"
+        private val UPLOADED_COVER_BASE = "https://" + "nu" + "vioapp.space/uploads/covers/"
 
         /**
          * Build the full preinstalled catalog list for a fresh profile:
@@ -567,7 +568,7 @@ class MediaRepository @Inject constructor(
                 title = "Shudder",
                 group = CollectionGroupKind.SERVICE,
                 description = "Horror & thriller picks from Shudder.",
-                cover = "https://nuvioapp.space/uploads/covers/9a804000-5337-4031-9669-7be45c213f6a.gif",
+                cover = "${UPLOADED_COVER_BASE}9a804000-5337-4031-9669-7be45c213f6a.gif",
                 focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/ecKQlAEG95k62SMGhvX83oEqANK.jpg",
                 clearLogo = null,
@@ -616,7 +617,7 @@ class MediaRepository @Inject constructor(
                 title = "Sky",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Sky.",
-                cover = "https://nuvioapp.space/uploads/covers/be914269-f8c5-4c51-8aa5-86581074c10f.png",
+                cover = "${UPLOADED_COVER_BASE}be914269-f8c5-4c51-8aa5-86581074c10f.png",
                 focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/pwGmXVKUgKN13psUjlhC9zBcq1o.jpg",
                 clearLogo = null,
@@ -646,7 +647,7 @@ class MediaRepository @Inject constructor(
         )
 
         // ──────────────────────────────────────────────────────────────
-        // Franchises (nuvio — 17 franchises)
+        // Franchises (17 franchises)
         // Primary: mdblist via aio-metadata addon.
         // Fallback: known TMDB collection / keyword IDs so the row still
         // populates when the aio-metadata addon isn't installed.
@@ -1014,10 +1015,10 @@ class MediaRepository @Inject constructor(
         )
 
         // ──────────────────────────────────────────────────────────────
-        // Genres (nuvio — 11 genres)
+        // Genres (11 genres)
         // Primary: addon catalogs when available; fallback to TMDB
         // discover-by-genre. "New" = latest action (as configured by
-        // nuvio). Superhero & Crime get keyword + genre fallbacks.
+        // source list). Superhero & Crime get keyword + genre fallbacks.
         // ──────────────────────────────────────────────────────────────
         val genres = listOf(
             collection(

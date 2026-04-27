@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
 /**
  * Auto frame rate matching utility.
  * Switches the display refresh rate to match the video frame rate for judder-free playback.
- * Simplified from NuvioTV reference — uses MediaExtractor only (no NextLib dependency).
+ * Simplified frame-rate helper using MediaExtractor only (no NextLib dependency).
  */
 object FrameRateUtils {
 

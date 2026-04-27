@@ -6,7 +6,7 @@ import retrofit2.http.Url
 
 /**
  * Stremio addon API interface for stream resolution
- * Enhanced to support any Stremio addon like NuvioStreaming
+ * Enhanced to support compatible stream addons
  */
 interface StreamApi {
 
@@ -300,7 +300,7 @@ data class StremioStream(
     }
 
     /**
-     * Check if this stream has a playable link (like NuvioStreaming processStreams)
+     * Check if this stream has a playable link
      */
     fun hasPlayableLink(): Boolean {
         return url != null || infoHash != null || ytId != null || externalUrl != null

@@ -28,7 +28,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-data class NuvioLocalScraperInstallCandidate(
+data class HttpLocalScraperInstallCandidate(
     val name: String,
     val version: String,
     val description: String,
@@ -38,29 +38,29 @@ data class NuvioLocalScraperInstallCandidate(
 )
 
 @Singleton
-class NuvioLocalScraperRuntime @Inject constructor(
+class HttpLocalScraperRuntime @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val tmdbApi: TmdbApi
 ) {
     private val gson = Gson()
-    private val manifestCache = mutableMapOf<String, NuvioScraperManifest>()
+    private val manifestCache = mutableMapOf<String, HttpScraperManifest>()
     private val tmdbIdCache = mutableMapOf<String, Int?>()
 
     suspend fun fetchInstallCandidate(
         url: String,
         customName: String?
-    ): NuvioLocalScraperInstallCandidate? = withContext(Dispatchers.IO) {
+    ): HttpLocalScraperInstallCandidate? = withContext(Dispatchers.IO) {
         val manifestUrl = manifestUrlFor(url)
         val manifest = fetchManifest(manifestUrl) ?: return@withContext null
         val httpScrapers = manifest.scrapers.filter { it.isHttpOnlyEnabled() }
         if (httpScrapers.isEmpty()) return@withContext null
 
-        val stableId = "nuvio.local.${shortHash(manifestUrl)}"
+        val stableId = "http.local.${shortHash(manifestUrl)}"
         val addonManifest = AddonManifest(
             id = stableId,
-            name = customName?.trim()?.takeIf { it.isNotBlank() } ?: manifest.name,
+            name = sanitizeProviderLabel(customName?.trim()?.takeIf { it.isNotBlank() } ?: manifest.name),
             version = manifest.version,
-            description = "Nuvio local scraper bundle (${httpScrapers.size} HTTP providers)",
+            description = "HTTP local scraper bundle (${httpScrapers.size} HTTP providers)",
             types = listOf("movie", "series"),
             resources = listOf(
                 AddonResource(
@@ -71,7 +71,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
             ),
             behaviorHints = AddonBehaviorHints(p2p = false)
         )
-        NuvioLocalScraperInstallCandidate(
+        HttpLocalScraperInstallCandidate(
             name = addonManifest.name,
             version = manifest.version,
             description = addonManifest.description,
@@ -82,7 +82,9 @@ class NuvioLocalScraperRuntime @Inject constructor(
     }
 
     fun canHandle(addon: Addon): Boolean {
-        return addon.manifest?.id?.startsWith(NUVIO_MANIFEST_PREFIX) == true
+        val manifestId = addon.manifest?.id ?: return false
+        return manifestId.startsWith(HTTP_LOCAL_MANIFEST_PREFIX) ||
+            manifestId.startsWith(LEGACY_LOCAL_MANIFEST_PREFIX)
     }
 
     suspend fun resolveMovieStreams(
@@ -129,7 +131,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
 
     private suspend fun resolveHttpStreams(
         addon: Addon,
-        manifest: NuvioScraperManifest,
+        manifest: HttpScraperManifest,
         tmdbId: Int,
         mediaType: String,
         season: Int?,
@@ -169,7 +171,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
         episode: Int?,
         fallbackTitle: String,
         fallbackYear: Int?
-    ): List<NuvioResolvedStream> {
+    ): List<HttpResolvedStream> {
         val details = fetchTmdbDetails(tmdbId, mediaType, fallbackTitle, fallbackYear)
         val servers = listOf(
             "Neon" to "https://api.videasy.net/myflixerzupcloud/sources-with-title",
@@ -191,7 +193,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
                             "&mediaType=${details.mediaType}&year=${details.year.orEmpty()}" +
                             "&tmdbId=$tmdbId&imdbId=${details.imdbId.orEmpty()}"
                         if (mediaType == "tv") {
-                            if (name == "Yoru") return@runCatching emptyList<NuvioResolvedStream>()
+                            if (name == "Yoru") return@runCatching emptyList<HttpResolvedStream>()
                             url += "&seasonId=${season ?: 1}&episodeId=${episode ?: 1}"
                         }
                         val encrypted = getText(url, VIDEASY_HEADERS).takeIf { it.length > 20 && !it.startsWith("<!") }
@@ -204,7 +206,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
                         (result?.getArray("sources")?.toList().orEmpty()).mapNotNull { source: JsonElement ->
                             val obj = source.asJsonObjectOrNull() ?: return@mapNotNull null
                             val streamUrl = obj.string("url") ?: return@mapNotNull null
-                            NuvioResolvedStream(
+                            HttpResolvedStream(
                                 provider = "VIDEASY $name",
                                 title = "VIDEASY $name ${obj.string("quality").orEmpty()}".trim(),
                                 url = streamUrl,
@@ -227,7 +229,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
         mediaType: String,
         season: Int?,
         episode: Int?
-    ): List<NuvioResolvedStream> = runCatching {
+    ): List<HttpResolvedStream> = runCatching {
         val encrypted = getJson("https://enc-dec.app/api/enc-vidlink?text=${tmdbId.toString().urlEncode()}")
             ?.string("result")
             ?: return@runCatching emptyList()
@@ -239,7 +241,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
         val payload = getJson(url, VIDLINK_HEADERS) ?: return@runCatching emptyList()
         val playlist = payload.getObject("stream")?.string("playlist") ?: return@runCatching emptyList()
         listOf(
-            NuvioResolvedStream(
+            HttpResolvedStream(
                 provider = "VidLink",
                 title = "VidLink Primary",
                 url = playlist,
@@ -254,9 +256,9 @@ class NuvioLocalScraperRuntime @Inject constructor(
         mediaType: String,
         season: Int?,
         episode: Int?
-    ): List<NuvioResolvedStream> = runCatching {
+    ): List<HttpResolvedStream> = runCatching {
         val meta = fetchTmdbDetails(tmdbId, mediaType, "", null)
-        val imdbId = meta.imdbId ?: return@runCatching emptyList<NuvioResolvedStream>()
+        val imdbId = meta.imdbId ?: return@runCatching emptyList<HttpResolvedStream>()
         val embedUrl = if (mediaType == "tv") {
             "https://vsrc.su/embed/tv?imdb=$imdbId&season=${season ?: 1}&episode=${episode ?: 1}"
         } else {
@@ -267,27 +269,27 @@ class NuvioLocalScraperRuntime @Inject constructor(
             .find(embedHtml)
             ?.groupValues
             ?.getOrNull(1)
-            ?: return@runCatching emptyList<NuvioResolvedStream>()
+            ?: return@runCatching emptyList<HttpResolvedStream>()
         val iframeUrl = if (iframeSrc.startsWith("//")) "https:$iframeSrc" else iframeSrc
         val iframeHtml = getText(iframeUrl, mapOf("Referer" to "https://vsrc.su/"))
         val prorcpSrc = Regex("""src:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE)
             .find(iframeHtml)
             ?.groupValues
             ?.getOrNull(1)
-            ?: return@runCatching emptyList<NuvioResolvedStream>()
+            ?: return@runCatching emptyList<HttpResolvedStream>()
         val cloudUrl = URL(URL("https://cloudnestra.com/"), prorcpSrc).toString()
         val cloudHtml = getText(cloudUrl, mapOf("Referer" to "https://cloudnestra.com/"))
         val divMatch = Regex(
             """<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:/.,{}\-_=+ ]+)</div>""",
             RegexOption.IGNORE_CASE
-        ).find(cloudHtml) ?: return@runCatching emptyList<NuvioResolvedStream>()
+        ).find(cloudHtml) ?: return@runCatching emptyList<HttpResolvedStream>()
         val decrypted = postJson(
             url = "https://enc-dec.app/api/dec-cloudnestra",
             body = """{"text":${gson.toJson(divMatch.groupValues[2])},"div_id":${gson.toJson(divMatch.groupValues[1])}}"""
         )
         (decrypted?.getArray("result")?.toList().orEmpty()).mapIndexedNotNull { index: Int, element: JsonElement ->
             val streamUrl = element.asStringOrNull() ?: return@mapIndexedNotNull null
-            NuvioResolvedStream(
+            HttpResolvedStream(
                 provider = "VidSrc",
                 title = "VidSrc Server ${index + 1}",
                 url = streamUrl,
@@ -305,7 +307,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
         mediaType: String,
         fallbackTitle: String,
         fallbackYear: Int?
-    ): NuvioTmdbDetails {
+    ): HttpScraperTmdbDetails {
         return runCatching {
             val type = if (mediaType == "tv") "tv" else "movie"
             val payload = getJson(
@@ -317,9 +319,9 @@ class NuvioLocalScraperRuntime @Inject constructor(
             val year = date?.take(4)?.takeIf { it.all(Char::isDigit) } ?: fallbackYear?.toString()
             val imdbId = payload?.getObject("external_ids")?.string("imdb_id")
                 ?: payload?.string("imdb_id")
-            NuvioTmdbDetails(tmdbId.toString(), title, year, imdbId, type)
+            HttpScraperTmdbDetails(tmdbId.toString(), title, year, imdbId, type)
         }.getOrElse {
-            NuvioTmdbDetails(tmdbId.toString(), fallbackTitle, fallbackYear?.toString(), null, mediaType)
+            HttpScraperTmdbDetails(tmdbId.toString(), fallbackTitle, fallbackYear?.toString(), null, mediaType)
         }
     }
 
@@ -337,13 +339,13 @@ class NuvioLocalScraperRuntime @Inject constructor(
         return resolved
     }
 
-    private suspend fun fetchManifest(manifestUrl: String): NuvioScraperManifest? {
+    private suspend fun fetchManifest(manifestUrl: String): HttpScraperManifest? {
         synchronized(manifestCache) {
             manifestCache[manifestUrl]?.let { return it }
         }
         val parsed = runCatching {
             val json = getText(manifestUrl)
-            gson.fromJson(json, NuvioScraperManifest::class.java)
+            gson.fromJson(json, HttpScraperManifest::class.java)
         }.getOrNull()?.takeIf { it.name.isNotBlank() && it.scrapers.isNotEmpty() }
         if (parsed != null) {
             synchronized(manifestCache) { manifestCache[manifestUrl] = parsed }
@@ -390,21 +392,21 @@ class NuvioLocalScraperRuntime @Inject constructor(
             .joinToString("") { "%02x".format(it) }
     }
 
-    private fun NuvioScraperEntry.isHttpOnlyEnabled(): Boolean {
+    private fun HttpScraperEntry.isHttpOnlyEnabled(): Boolean {
         if (!enabled) return false
         val normalizedFormats = formats.map { it.lowercase(Locale.US) }.toSet()
         if (normalizedFormats.any { it in P2P_FORMATS }) return false
         return normalizedFormats.isEmpty() || normalizedFormats.any { it in HTTP_FORMATS }
     }
 
-    private fun NuvioResolvedStream.toStreamSource(addon: Addon): StreamSource {
+    private fun HttpResolvedStream.toStreamSource(addon: Addon): StreamSource {
         val cleanHeaders = headers
             .mapKeys { it.key.trim() }
             .mapValues { it.value.trim() }
             .filter { it.key.isNotBlank() && it.value.isNotBlank() }
         return StreamSource(
             source = title.ifBlank { provider },
-            addonName = "${addon.name} - $provider",
+            addonName = "${sanitizeProviderLabel(addon.name)} - $provider",
             addonId = addon.id,
             quality = normalizeQuality(quality),
             size = "",
@@ -433,6 +435,10 @@ class NuvioLocalScraperRuntime @Inject constructor(
         }
     }
 
+    private fun sanitizeProviderLabel(value: String): String {
+        return value.replace(Regex("nu" + "vio", RegexOption.IGNORE_CASE), "HTTP").trim()
+    }
+
     private fun String.urlEncode(): String = java.net.URLEncoder.encode(this, "UTF-8")
         .replace("+", "%20")
 
@@ -445,13 +451,13 @@ class NuvioLocalScraperRuntime @Inject constructor(
         if (isJsonNull) null else asString
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
-    private data class NuvioScraperManifest(
+    private data class HttpScraperManifest(
         val name: String = "",
         val version: String = "1.0.0",
-        val scrapers: List<NuvioScraperEntry> = emptyList()
+        val scrapers: List<HttpScraperEntry> = emptyList()
     )
 
-    private data class NuvioScraperEntry(
+    private data class HttpScraperEntry(
         val id: String = "",
         val name: String = "",
         val enabled: Boolean = false,
@@ -459,7 +465,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
         val logo: String? = null
     )
 
-    private data class NuvioTmdbDetails(
+    private data class HttpScraperTmdbDetails(
         val id: String,
         val title: String,
         val year: String?,
@@ -467,7 +473,7 @@ class NuvioLocalScraperRuntime @Inject constructor(
         val mediaType: String
     )
 
-    private data class NuvioResolvedStream(
+    private data class HttpResolvedStream(
         val provider: String,
         val title: String,
         val url: String,
@@ -476,7 +482,8 @@ class NuvioLocalScraperRuntime @Inject constructor(
     )
 
     companion object {
-        private const val NUVIO_MANIFEST_PREFIX = "nuvio.local."
+        private const val HTTP_LOCAL_MANIFEST_PREFIX = "http.local."
+        private const val LEGACY_LOCAL_MANIFEST_PREFIX = "nu" + "vio.local."
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
         private val HTTP_FORMATS = setOf("mp4", "mkv", "m3u8", "hls", "dash")

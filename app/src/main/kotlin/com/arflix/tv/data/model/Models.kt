@@ -314,7 +314,7 @@ data class CloudstreamInstalledPlugin(
 ) : Serializable
 
 /**
- * Stream fetch result with addon info - for callback-based fetching like NuvioStreaming
+ * Stream fetch result with addon info for callback-based fetching
  */
 data class AddonStreamResult(
     val streams: List<StreamSource>,

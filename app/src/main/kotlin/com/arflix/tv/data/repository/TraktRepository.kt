@@ -609,7 +609,7 @@ class TraktRepository @Inject constructor(
         }
     }
 
-    // ========== Scrobbling (Like NuvioStreaming) ==========
+    // ========== Scrobbling ==========
 
     // Queue-based scrobbling to prevent duplicate API calls
     private var lastScrobbleKey: String? = null
@@ -670,7 +670,7 @@ class TraktRepository @Inject constructor(
 
     /**
      * Scrobble Pause - Called when playback is paused (saves progress)
-     * Uses queue-based deduplication like NuvioStreaming
+     * Uses queue-based deduplication
      */
     suspend fun scrobblePause(
         mediaType: MediaType,
@@ -731,7 +731,7 @@ class TraktRepository @Inject constructor(
             traktApi.scrobbleStop(auth, clientId, "2", body)
         }
 
-        // Auto-mark as watched if progress >= threshold (like NuvioStreaming)
+        // Auto-mark as watched if progress >= threshold
         if (progress >= Constants.WATCHED_THRESHOLD) {
             if (mediaType == MediaType.MOVIE) {
                 markMovieWatched(tmdbId)
@@ -810,7 +810,7 @@ class TraktRepository @Inject constructor(
     }
 
     /**
-     * Delete playback progress for specific content (like NuvioStreaming's deletePlaybackForContent)
+     * Delete playback progress for specific content
      */
     suspend fun deletePlaybackForContent(tmdbId: Int, mediaType: MediaType): Boolean {
         val auth = getAuthHeader() ?: return false
@@ -2613,7 +2613,7 @@ class TraktRepository @Inject constructor(
         }
     }
 
-    // ========== Collection Management (Like NuvioStreaming) ==========
+    // ========== Collection Management ==========
 
     /**
      * Get user's movie collection
@@ -2719,7 +2719,7 @@ class TraktRepository @Inject constructor(
         return collection.any { it.show.ids.tmdb == tmdbId }
     }
 
-    // ========== Ratings (Like NuvioStreaming) ==========
+    // ========== Ratings ==========
 
     /**
      * Get user's movie ratings
@@ -2852,7 +2852,7 @@ class TraktRepository @Inject constructor(
         return ratings.find { it.show?.ids?.tmdb == tmdbId }?.rating
     }
 
-    // ========== Comments (Like NuvioStreaming) ==========
+    // ========== Comments ==========
 
     /**
      * Get movie comments
@@ -2898,7 +2898,7 @@ class TraktRepository @Inject constructor(
         }
     }
 
-    // ========== Bulk Watch Operations (Like NuvioStreaming) ==========
+    // ========== Bulk Watch Operations ==========
 
     /**
      * Mark entire season as watched
@@ -3068,7 +3068,7 @@ class TraktRepository @Inject constructor(
         }
     }
 
-    // ========== Local Watched Status Cache (Like NuvioStreaming) ==========
+    // ========== Local Watched Status Cache ==========
 
     // In-memory cache for watched status (mirrors Supabase data)
     private val watchedMoviesCache = mutableSetOf<Int>()

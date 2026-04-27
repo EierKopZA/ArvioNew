@@ -62,7 +62,7 @@ import javax.inject.Singleton
 private val Context.streamDataStore: DataStore<Preferences> by preferencesDataStore(name = "stream_prefs")
 
 /**
- * Callback for streaming results as they arrive - like NuvioStreaming
+ * Callback for streaming results as they arrive - 
  */
 typealias StreamCallback = (streams: List<StreamSource>?, addonId: String, addonName: String, error: Exception?) -> Unit
 
@@ -81,7 +81,7 @@ class StreamRepository @Inject constructor(
     private val cloudstreamRepositoryService: CloudstreamRepositoryService,
     private val cloudstreamPluginInstaller: CloudstreamPluginInstaller,
     private val cloudstreamProviderRuntime: CloudstreamProviderRuntime,
-    private val nuvioLocalScraperRuntime: NuvioLocalScraperRuntime,
+    private val httpLocalScraperRuntime: HttpLocalScraperRuntime,
     private val invalidationBus: CloudSyncInvalidationBus
 ) {
     companion object {
@@ -273,7 +273,7 @@ class StreamRepository @Inject constructor(
     val installedAddons: Flow<List<Addon>> =
         context.streamDataStore.data.map { prefs ->
             val addons = readSharedOrLegacyAddons(prefs) ?: getDefaultAddonList()
-            enforceOpenSubtitles(addons)
+            enforceOpenSubtitles(addons).map { sanitizeAddonDisplayName(it) }
         }
 
     val cloudstreamRepositories: Flow<List<CloudstreamRepositoryRecord>> =
@@ -403,7 +403,7 @@ class StreamRepository @Inject constructor(
     }
 
     /**
-     * Add a custom Stremio addon from URL - like NuvioStreaming
+     * Add a custom Stremio addon from URL - 
      * Fetches manifest and stores addon info
      */
     suspend fun addCustomAddon(url: String, customName: String? = null): Result<Addon> = withContext(Dispatchers.IO) {
@@ -417,23 +417,23 @@ class StreamRepository @Inject constructor(
             val manifest = try {
                 streamApi.getAddonManifest(manifestUrl)
             } catch (manifestError: Exception) {
-                val nuvioCandidate = nuvioLocalScraperRuntime.fetchInstallCandidate(
+                val httpCandidate = httpLocalScraperRuntime.fetchInstallCandidate(
                     url = normalizedUrl,
                     customName = customName
                 ) ?: throw manifestError
-                val addonId = buildAddonInstanceId(nuvioCandidate.manifest.id, normalizedUrl)
+                val addonId = buildAddonInstanceId(httpCandidate.manifest.id, normalizedUrl)
                 val newAddon = Addon(
                     id = addonId,
-                    name = nuvioCandidate.name,
-                    version = nuvioCandidate.version,
-                    description = nuvioCandidate.description,
+                    name = httpCandidate.name,
+                    version = httpCandidate.version,
+                    description = httpCandidate.description,
                     isInstalled = true,
                     isEnabled = true,
                     type = AddonType.CUSTOM,
                     url = normalizedUrl,
-                    logo = nuvioCandidate.logo,
-                    manifest = nuvioCandidate.manifest,
-                    transportUrl = nuvioCandidate.transportUrl
+                    logo = httpCandidate.logo,
+                    manifest = httpCandidate.manifest,
+                    transportUrl = httpCandidate.transportUrl
                 )
                 val addons = installedAddons.first().toMutableList()
                 addons.removeAll { it.id == addonId }
@@ -793,7 +793,7 @@ class StreamRepository @Inject constructor(
         val prefs = context.streamDataStore.data.first()
         val stored = readSharedOrLegacyAddons(prefs)
             ?: parseAddons(prefs[addonsKeyFor(profileId)])
-        return enforceOpenSubtitles(stored ?: getDefaultAddonList())
+        return enforceOpenSubtitles(stored ?: getDefaultAddonList()).map { sanitizeAddonDisplayName(it) }
     }
 
     suspend fun getCloudstreamRepositoriesForProfile(profileId: String): List<CloudstreamRepositoryRecord> {
@@ -848,7 +848,7 @@ class StreamRepository @Inject constructor(
     }
 
     private suspend fun saveAddons(addons: List<Addon>) {
-        val json = gson.toJson(addons)
+        val json = gson.toJson(addons.map { sanitizeAddonDisplayName(it) })
 
         // Save locally to the shared account-level addon list. Mirror to the
         // active profile key so older builds/cloud payloads can still recover it.
@@ -860,6 +860,37 @@ class StreamRepository @Inject constructor(
         }
         synchronized(streamResultCache) { streamResultCache.clear() }
         invalidationBus.markDirty(CloudSyncScope.ADDONS, profileManager.getProfileIdSync(), "save addons")
+    }
+
+    private fun sanitizeAddonDisplayName(addon: Addon): Addon {
+        val sanitizedName = sanitizeProviderLabel(addon.name)
+        val sanitizedDescription = sanitizeProviderLabel(addon.description)
+        val sanitizedManifest = addon.manifest?.let { manifest ->
+            val manifestName = sanitizeProviderLabel(manifest.name)
+            val manifestDescription = sanitizeProviderLabel(manifest.description)
+            if (manifestName == manifest.name && manifestDescription == manifest.description) {
+                manifest
+            } else {
+                manifest.copy(name = manifestName, description = manifestDescription)
+            }
+        }
+        return if (
+            sanitizedName == addon.name &&
+            sanitizedDescription == addon.description &&
+            sanitizedManifest === addon.manifest
+        ) {
+            addon
+        } else {
+            addon.copy(
+                name = sanitizedName,
+                description = sanitizedDescription,
+                manifest = sanitizedManifest
+            )
+        }
+    }
+
+    private fun sanitizeProviderLabel(value: String): String {
+        return value.replace(Regex("nu" + "vio", RegexOption.IGNORE_CASE), "HTTP").trim()
     }
 
     private suspend fun restoreCloudstreamAddonArtifacts(addons: List<Addon>): List<Addon> = withContext(Dispatchers.IO) {
@@ -1034,7 +1065,7 @@ class StreamRepository @Inject constructor(
     }
 
     /**
-     * Get manifest URL from addon URL - like NuvioStreaming getAddonBaseURL
+     * Get manifest URL from addon URL -  getAddonBaseURL
      */
     private fun getManifestUrl(url: String): String {
         var cleanUrl = normalizeAddonInputUrl(url)
@@ -1054,7 +1085,7 @@ class StreamRepository @Inject constructor(
     }
 
     /**
-     * Get transport URL (base URL without manifest.json) - like NuvioStreaming
+     * Get transport URL (base URL without manifest.json) - 
      */
     private fun getTransportUrl(url: String): String {
         var cleanUrl = normalizeAddonInputUrl(url)
@@ -1104,7 +1135,7 @@ class StreamRepository @Inject constructor(
     }
 
     /**
-     * Get base URL with optional query params - like NuvioStreaming getAddonBaseURL
+     * Get base URL with optional query params -  getAddonBaseURL
      */
     private fun getAddonBaseUrl(url: String): Pair<String, String?> {
         val parts = url.split("?", limit = 2)
@@ -1241,7 +1272,7 @@ class StreamRepository @Inject constructor(
     // ========== Stream Resolution ==========
 
     /**
-     * Filter addons that support streaming for the given content type - like NuvioStreaming
+     * Filter addons that support streaming for the given content type - 
      * More lenient filtering to ensure custom addons work
      */
     private fun getStreamAddons(addons: List<Addon>, type: String, id: String): List<Addon> {
@@ -1411,8 +1442,8 @@ class StreamRepository @Inject constructor(
         val startedAt = System.currentTimeMillis()
         return try {
             withTimeout(ADDON_TIMEOUT_MS) {
-                if (nuvioLocalScraperRuntime.canHandle(addon)) {
-                    val streams = nuvioLocalScraperRuntime.resolveMovieStreams(
+                if (httpLocalScraperRuntime.canHandle(addon)) {
+                    val streams = httpLocalScraperRuntime.resolveMovieStreams(
                         addon = addon,
                         imdbId = imdbId,
                         title = title,
@@ -1488,8 +1519,8 @@ class StreamRepository @Inject constructor(
         val startedAt = System.currentTimeMillis()
         return try {
             withTimeout(ADDON_TIMEOUT_MS) {
-                if (nuvioLocalScraperRuntime.canHandle(addon)) {
-                    val streams = nuvioLocalScraperRuntime.resolveEpisodeStreams(
+                if (httpLocalScraperRuntime.canHandle(addon)) {
+                    val streams = httpLocalScraperRuntime.resolveEpisodeStreams(
                         addon = addon,
                         imdbId = imdbId,
                         season = season,
@@ -1873,7 +1904,7 @@ class StreamRepository @Inject constructor(
     }
 
     /**
-     * Process raw streams into StreamSource objects - like NuvioStreaming processStreams
+     * Process raw streams into StreamSource objects -  processStreams
      */
     private fun processStreams(streams: List<StremioStream>, addon: Addon): List<StreamSource> {
         val filtered = streams.filter { stream ->

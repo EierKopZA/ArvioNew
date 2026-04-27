@@ -239,7 +239,7 @@ object AppTranslations {
         "IPTV" to "IPTV",
         "Iptv" to "IPTV",
         "Catalogs" to catalogs,
-        "Stremio" to "Stremio",
+        "Stremio" to "Addons",
         "Cloudstream" to "Cloudstream",
         "Accounts" to accounts,
         "MY WATCHLIST" to watchlist.uppercase(Locale.ROOT),

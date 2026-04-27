@@ -1689,7 +1689,7 @@ class HomeViewModel @Inject constructor(
                     // catalog ordering from Settings > Catalogs.
                     // Addon-provided service-branded catalogs (Netflix, Disney+,
                     // Hulu etc. rows contributed by aio-metadata / org.kris /
-                    // nuvio addons) are suppressed here — we already surface
+                    // local scraper addons) are suppressed here - we already surface
                     // those services via the collection-tile Services row, so
                     // having a second identically-named catalog row below it
                     // was duplicative per user feedback. Preinstalled catalogs
