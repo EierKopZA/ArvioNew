@@ -43,6 +43,7 @@ class CloudstreamAddonRuntime(
     ): List<StreamSource> {
         return providerRuntime.resolveMovieStreams(
             addons = addons,
+            imdbId = request.imdbId,
             title = request.title,
             year = request.year
         )
@@ -54,6 +55,7 @@ class CloudstreamAddonRuntime(
     ): List<StreamSource> {
         return providerRuntime.resolveEpisodeStreams(
             addons = addons,
+            imdbId = request.imdbId,
             title = request.title,
             year = null,
             season = request.season,
