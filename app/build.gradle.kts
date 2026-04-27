@@ -341,6 +341,50 @@ secrets {
     ignoreList.add("sdk.*")
 }
 
+fun localSecretValue(name: String): String {
+    val secretsFile = rootProject.file("secrets.properties")
+    if (secretsFile.exists()) {
+        val properties = Properties()
+        secretsFile.inputStream().use { properties.load(it) }
+        properties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+    }
+    providers.gradleProperty(name).orNull?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+    providers.environmentVariable(name).orNull?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+    return ""
+}
+
+val validateReleaseSupabaseSecrets = tasks.register("validateReleaseSupabaseSecrets") {
+    doLast {
+        val supabaseUrl = localSecretValue("SUPABASE_URL")
+        val supabaseAnonKey = localSecretValue("SUPABASE_ANON_KEY")
+        require(
+            supabaseUrl.startsWith("https://") &&
+                supabaseUrl.endsWith(".supabase.co") &&
+                !supabaseUrl.contains("your-project", ignoreCase = true)
+        ) {
+            "Release builds require a real SUPABASE_URL in secrets.properties, Gradle properties, or the environment."
+        }
+        require(
+            supabaseAnonKey.length > 40 &&
+                !supabaseAnonKey.equals("your-supabase-anon-key", ignoreCase = true)
+        ) {
+            "Release builds require a real SUPABASE_ANON_KEY in secrets.properties, Gradle properties, or the environment."
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name in setOf(
+            "prePlayReleaseBuild",
+            "preSideloadReleaseBuild",
+            "prePlayStagingBuild",
+            "preSideloadStagingBuild"
+        )
+    ) {
+        dependsOn(validateReleaseSupabaseSecrets)
+    }
+}
+
 detekt {
     // Configuration file
     config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
