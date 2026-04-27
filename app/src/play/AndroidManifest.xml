@@ -6,4 +6,10 @@
         android:name="android.permission.REQUEST_INSTALL_PACKAGES"
         tools:node="remove" />
 
+    <application>
+        <receiver
+            android:name=".updater.ApkInstallReceiver"
+            tools:node="remove" />
+    </application>
+
 </manifest>
