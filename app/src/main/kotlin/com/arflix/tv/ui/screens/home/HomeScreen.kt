@@ -2100,6 +2100,18 @@ private fun HomeInputLayer(
         }
     }
 
+    val focusedRowItemCount = categories.getOrNull(focusState.currentRowIndex)?.items?.size ?: 0
+    LaunchedEffect(focusState.currentRowIndex, focusedRowItemCount) {
+        if (focusedRowItemCount <= 0) {
+            if (focusState.currentItemIndex != 0) focusState.currentItemIndex = 0
+            return@LaunchedEffect
+        }
+        val maxItemIndex = focusedRowItemCount - 1
+        if (focusState.currentItemIndex > maxItemIndex) {
+            focusState.currentItemIndex = maxItemIndex
+        }
+    }
+
     val keyEventModifier = if (isMobile) {
         Modifier // No D-pad key handling on mobile
     } else {

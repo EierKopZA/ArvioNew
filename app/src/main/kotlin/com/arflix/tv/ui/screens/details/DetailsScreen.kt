@@ -92,6 +92,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -1956,6 +1957,12 @@ private fun DetailsContent(
                 item {
                     val episodeCardWidth = if (configuration.screenWidthDp < 1400) 292.dp else 300.dp
                     val episodeRowState = rememberTvLazyListState()
+                    val episodeFixedFocus = focusSectionForUi == FocusSection.EPISODES &&
+                        detailsRailIsScrollable(
+                            totalItems = episodes.size,
+                            itemWidth = episodeCardWidth,
+                            itemSpacing = 16.dp
+                        )
                     HomeStyleRowAutoScroll(
                         rowState = episodeRowState,
                         isCurrentRow = focusSectionForUi == FocusSection.EPISODES,
@@ -1968,27 +1975,37 @@ private fun DetailsContent(
                     val currentFocusedSection by rememberUpdatedState(focusSectionForUi)
                     val currentEpisodeIndex by rememberUpdatedState(episodeIndex)
 
-                    TvLazyRow(
-                        state = episodeRowState,
-                        modifier = Modifier.arvioDpadFocusGroup(),
-                        contentPadding = PaddingValues(
-                            start = contentStartPadding,
-                            end = 520.dp,
-                            top = 6.dp,
-                            bottom = 6.dp,
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        itemsIndexed(
-                            episodes,
-                            key = { index, ep -> "${ep.seasonNumber}_${ep.episodeNumber}_$index" }
-                        ) { index, episode ->
-                            val isFocused = currentFocusedSection == FocusSection.EPISODES && index == currentEpisodeIndex
-                            EpisodeCard(
-                                episode = episode,
-                                cardWidth = episodeCardWidth,
-                                isFocused = isFocused,
-                                onClick = { onEpisodeClick(index) }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        TvLazyRow(
+                            state = episodeRowState,
+                            modifier = Modifier.arvioDpadFocusGroup(),
+                            contentPadding = PaddingValues(
+                                start = contentStartPadding,
+                                end = 520.dp,
+                                top = 6.dp,
+                                bottom = 6.dp,
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            itemsIndexed(
+                                episodes,
+                                key = { index, ep -> "${ep.seasonNumber}_${ep.episodeNumber}_$index" }
+                            ) { index, episode ->
+                                val isFocused = currentFocusedSection == FocusSection.EPISODES && index == currentEpisodeIndex
+                                EpisodeCard(
+                                    episode = episode,
+                                    cardWidth = episodeCardWidth,
+                                    isFocused = isFocused && !episodeFixedFocus,
+                                    onClick = { onEpisodeClick(index) }
+                                )
+                            }
+                        }
+                        if (episodeFixedFocus) {
+                            FixedDetailsRailFocusOverlay(
+                                startPadding = contentStartPadding,
+                                topPadding = 6.dp,
+                                width = episodeCardWidth,
+                                aspectRatio = 16f / 9f
                             )
                         }
                     }
@@ -2107,12 +2124,19 @@ private fun DetailsContent(
                 }
                 item {
                     val similarRowState = rememberTvLazyListState()
+                    val similarCardWidth = if (usePosterCards) 126.dp else 210.dp
+                    val similarFixedFocus = focusSectionForUi == FocusSection.SIMILAR &&
+                        detailsRailIsScrollable(
+                            totalItems = similar.size,
+                            itemWidth = similarCardWidth,
+                            itemSpacing = 14.dp
+                        )
                     HomeStyleRowAutoScroll(
                         rowState = similarRowState,
                         isCurrentRow = focusSectionForUi == FocusSection.SIMILAR,
                         focusedItemIndex = similarIndex,
                         totalItems = similar.size,
-                        itemWidth = if (usePosterCards) 126.dp else 180.dp,
+                        itemWidth = similarCardWidth,
                         itemSpacing = 14.dp
                     )
 
@@ -2127,27 +2151,37 @@ private fun DetailsContent(
                             modifier = Modifier.padding(start = contentStartPadding, bottom = 10.dp)
                         )
 
-                        TvLazyRow(
-                            state = similarRowState,
-                            modifier = Modifier.arvioDpadFocusGroup(),
-                            contentPadding = PaddingValues(
-                                start = contentStartPadding,
-                                end = if (usePosterCards) 140.dp else 210.dp,
-                                top = 14.dp,
-                                bottom = 14.dp,
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            itemsIndexed(
-                                similar,
-                                key = { index, m -> "${m.mediaType.name}_${m.id}_$index" }
-                            ) { index, mediaItem ->
-                                SimilarMediaCard(
-                                    item = mediaItem,
-                                    logoImageUrl = similarLogoUrls["${mediaItem.mediaType}_${mediaItem.id}"],
-                                    usePosterCards = usePosterCards,
-                                    isFocused = focusSectionForUi == FocusSection.SIMILAR && index == similarIndex,
-                                    onClick = { onSimilarClick(index) }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            TvLazyRow(
+                                state = similarRowState,
+                                modifier = Modifier.arvioDpadFocusGroup(),
+                                contentPadding = PaddingValues(
+                                    start = contentStartPadding,
+                                    end = if (usePosterCards) 140.dp else 210.dp,
+                                    top = 14.dp,
+                                    bottom = 14.dp,
+                                ),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                itemsIndexed(
+                                    similar,
+                                    key = { index, m -> "${m.mediaType.name}_${m.id}_$index" }
+                                ) { index, mediaItem ->
+                                    SimilarMediaCard(
+                                        item = mediaItem,
+                                        logoImageUrl = similarLogoUrls["${mediaItem.mediaType}_${mediaItem.id}"],
+                                        usePosterCards = usePosterCards,
+                                        isFocused = focusSectionForUi == FocusSection.SIMILAR && index == similarIndex && !similarFixedFocus,
+                                        onClick = { onSimilarClick(index) }
+                                    )
+                                }
+                            }
+                            if (similarFixedFocus) {
+                                FixedDetailsRailFocusOverlay(
+                                    startPadding = contentStartPadding,
+                                    topPadding = 14.dp,
+                                    width = similarCardWidth,
+                                    aspectRatio = if (usePosterCards) 2f / 3f else 16f / 9f
                                 )
                             }
                         }
@@ -2160,6 +2194,51 @@ private fun DetailsContent(
                 Spacer(modifier = Modifier.height(20.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun detailsRailIsScrollable(
+    totalItems: Int,
+    itemWidth: Dp,
+    itemSpacing: Dp
+): Boolean {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val visibleCapacity = remember(configuration, density, itemWidth, itemSpacing) {
+        val availablePx = with(density) {
+            (configuration.screenWidthDp.dp - 56.dp - 12.dp).coerceAtLeast(1.dp).roundToPx()
+        }
+        val itemSpanPx = with(density) { (itemWidth + itemSpacing).roundToPx() }.coerceAtLeast(1)
+        (availablePx / itemSpanPx).coerceAtLeast(1)
+    }
+    return totalItems > visibleCapacity
+}
+
+@Composable
+private fun FixedDetailsRailFocusOverlay(
+    startPadding: Dp,
+    topPadding: Dp,
+    width: Dp,
+    aspectRatio: Float
+) {
+    ArvioFocusableSurface(
+        modifier = Modifier
+            .padding(start = startPadding, top = topPadding)
+            .width(width)
+            .aspectRatio(aspectRatio)
+            .zIndex(4f),
+        shape = rememberArvioCardShape(ArvioSkin.radius.md),
+        backgroundColor = Color.Transparent,
+        outlineColor = ArvioSkin.colors.focusOutline,
+        outlineWidth = 2.5.dp,
+        focusedScale = 1f,
+        pressedScale = 0.97f,
+        animateFocus = false,
+        enableSystemFocus = false,
+        isFocusedOverride = true
+    ) {
+        // Fixed focus lane: rows scroll under this ring.
     }
 }
 

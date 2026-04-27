@@ -146,6 +146,11 @@ class HomeViewModel @Inject constructor(
         const val FAVORITE_TV_CATEGORY_ID = "favorite_tv"
         /** Prefix used in MediaItem.status to identify IPTV items. */
         const val IPTV_STATUS_PREFIX = "iptv:"
+        private const val TOP_10_ITEM_LIMIT = 10
+        private val HARD_CAPPED_TOP_10_CATALOG_IDS = setOf(
+            "top10_movies_today",
+            "top10_shows_today"
+        )
     }
 
     /** Check if a MediaItem represents an IPTV channel. */
@@ -176,6 +181,22 @@ class HomeViewModel @Inject constructor(
 
     private fun continueWatchingKey(mediaType: MediaType, id: Int): String {
         return "${mediaType.name}:$id"
+    }
+
+    private fun isHardCappedTop10Catalog(categoryId: String): Boolean {
+        return categoryId in HARD_CAPPED_TOP_10_CATALOG_IDS
+    }
+
+    private fun Category.withTop10CapIfNeeded(): Category {
+        return if (isHardCappedTop10Catalog(id) && items.size > TOP_10_ITEM_LIMIT) {
+            copy(items = items.take(TOP_10_ITEM_LIMIT))
+        } else {
+            this
+        }
+    }
+
+    private fun catalogInitialLimit(catalog: CatalogConfig): Int {
+        return if (isHardCappedTop10Catalog(catalog.id)) TOP_10_ITEM_LIMIT else initialCategoryItemCap
     }
 
     private fun continueWatchingShowKey(item: ContinueWatchingItem): String {
@@ -1586,8 +1607,15 @@ class HomeViewModel @Inject constructor(
                     val mdblistInitial = initialBatch.map { cfg ->
                         async(networkDispatcher) {
                             try {
-                                val result = mediaRepository.loadCustomCatalogPage(catalog = cfg, offset = 0, limit = 20)
-                                if (result.items.isNotEmpty()) Category(id = cfg.id, title = cfg.title, items = result.items) else null
+                                val result = mediaRepository.loadCustomCatalogPage(
+                                    catalog = cfg,
+                                    offset = 0,
+                                    limit = if (isHardCappedTop10Catalog(cfg.id)) TOP_10_ITEM_LIMIT else 20
+                                )
+                                if (result.items.isNotEmpty()) {
+                                    Category(id = cfg.id, title = cfg.title, items = result.items)
+                                        .withTop10CapIfNeeded()
+                                } else null
                             } catch (_: Exception) { null }
                         }
                     }
@@ -1604,8 +1632,15 @@ class HomeViewModel @Inject constructor(
                                 val results = batch.map { cfg ->
                                     async {
                                         try {
-                                            val result = mediaRepository.loadCustomCatalogPage(catalog = cfg, offset = 0, limit = 20)
-                                            if (result.items.isNotEmpty()) Category(id = cfg.id, title = cfg.title, items = result.items) else null
+                                            val result = mediaRepository.loadCustomCatalogPage(
+                                                catalog = cfg,
+                                                offset = 0,
+                                                limit = if (isHardCappedTop10Catalog(cfg.id)) TOP_10_ITEM_LIMIT else 20
+                                            )
+                                            if (result.items.isNotEmpty()) {
+                                                Category(id = cfg.id, title = cfg.title, items = result.items)
+                                                    .withTop10CapIfNeeded()
+                                            } else null
                                         } catch (_: Exception) { null }
                                     }
                                 }.awaitAll().filterNotNull()
@@ -1640,14 +1675,18 @@ class HomeViewModel @Inject constructor(
                             customSemaphore.withPermit {
                                 try {
                                     val result = mediaRepository.loadCustomCatalogPage(
-                                        catalog = cfg, offset = 0, limit = initialCategoryItemCap
+                                        catalog = cfg,
+                                        offset = 0,
+                                        limit = catalogInitialLimit(cfg)
                                     )
                                     if (result.items.isNotEmpty()) {
+                                        val category = Category(id = cfg.id, title = cfg.title, items = result.items)
+                                            .withTop10CapIfNeeded()
                                         categoryPaginationStates[cfg.id] = CategoryPaginationState(
-                                            loadedCount = result.items.size,
-                                            hasMore = result.hasMore
+                                            loadedCount = category.items.size,
+                                            hasMore = result.hasMore && !isHardCappedTop10Catalog(cfg.id)
                                         )
-                                        Category(id = cfg.id, title = cfg.title, items = result.items)
+                                        category
                                     } else null
                                 } catch (_: Exception) { null }
                             }
@@ -1709,7 +1748,7 @@ class HomeViewModel @Inject constructor(
                         if (!cfg.isPreinstalled &&
                             cat.title.trim().lowercase(Locale.US) in serviceTitleBlocklist
                         ) return@mapNotNull null
-                        cat
+                        cat.withTop10CapIfNeeded()
                     }.toMutableList()
                     resolved
                 }
@@ -1757,7 +1796,7 @@ class HomeViewModel @Inject constructor(
                     if (category.id != "continue_watching" && !category.id.startsWith("collection_row_")) {
                         categoryPaginationStates[category.id] = CategoryPaginationState(
                             loadedCount = category.items.size,
-                            hasMore = category.items.size >= categoryPageSize
+                            hasMore = category.items.size >= categoryPageSize && !isHardCappedTop10Catalog(category.id)
                         )
                     }
                 }
@@ -2125,7 +2164,7 @@ class HomeViewModel @Inject constructor(
                             mediaRepository.loadCustomCatalogPage(
                                 catalog = catalog,
                                 offset = 0,
-                                limit = initialCategoryItemCap
+                                limit = catalogInitialLimit(catalog)
                             )
                         }.getOrNull()
                         if (firstPage == null || firstPage.items.isEmpty()) {
@@ -2139,14 +2178,15 @@ class HomeViewModel @Inject constructor(
                                 hasMore = false
                             )
                         } else {
-                            loadedById[catalog.id] = Category(
+                            val category = Category(
                                 id = catalog.id,
                                 title = catalog.title,
                                 items = firstPage.items
-                            )
+                            ).withTop10CapIfNeeded()
+                            loadedById[catalog.id] = category
                             categoryPaginationStates[catalog.id] = CategoryPaginationState(
-                                loadedCount = firstPage.items.size,
-                                hasMore = firstPage.hasMore
+                                loadedCount = category.items.size,
+                                hasMore = firstPage.hasMore && !isHardCappedTop10Catalog(catalog.id)
                             )
                         }
                         // Coalesce incremental row inserts so catalog arrivals do
@@ -2161,6 +2201,7 @@ class HomeViewModel @Inject constructor(
 
     fun maybeLoadNextPageForCategory(categoryId: String, focusedItemIndex: Int) {
         if (categoryId == "continue_watching") return
+        if (isHardCappedTop10Catalog(categoryId)) return
         val currentCategory = _uiState.value.categories.firstOrNull { it.id == categoryId } ?: return
         if (currentCategory.items.isEmpty() || currentCategory.items.all { it.isPlaceholder }) return
         if (focusedItemIndex < currentCategory.items.size - nearEndThreshold) return
@@ -2168,6 +2209,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun loadNextPageForCategory(categoryId: String) {
+        if (isHardCappedTop10Catalog(categoryId)) return
         val pagination = categoryPaginationStates.getOrPut(categoryId) {
             CategoryPaginationState(
                 loadedCount = _uiState.value.categories.firstOrNull { it.id == categoryId }?.items?.size ?: 0
