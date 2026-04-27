@@ -84,7 +84,7 @@ class StreamRepository @Inject constructor(
     private val invalidationBus: CloudSyncInvalidationBus
 ) {
     companion object {
-        const val SUPPORTED_CLOUDSTREAM_API_VERSION = 1
+        const val SUPPORTED_CLOUDSTREAM_API_VERSION = 2
 
         internal fun isCloudstreamPluginApiVersionSupported(
             pluginApiVersion: Int,
@@ -1636,6 +1636,7 @@ class StreamRepository @Inject constructor(
                     val addonStreams = try {
                         cloudstreamProviderRuntime.resolveMovieStreams(
                             addons = cloudstreamAddons,
+                            imdbId = imdbId,
                             title = title,
                             year = year
                         )
@@ -1983,6 +1984,7 @@ class StreamRepository @Inject constructor(
                     val addonStreams = try {
                         cloudstreamProviderRuntime.resolveEpisodeStreams(
                             addons = cloudstreamAddons,
+                            imdbId = imdbId,
                             title = title,
                             year = null,
                             season = season,

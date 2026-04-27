@@ -22,12 +22,14 @@ class CloudstreamProviderRuntime @Inject constructor(
 ) {
     suspend fun resolveMovieStreams(
         addons: List<Addon>,
+        imdbId: String? = null,
         title: String,
         year: Int?
     ): List<StreamSource> = emptyList()
 
     suspend fun resolveEpisodeStreams(
         addons: List<Addon>,
+        imdbId: String? = null,
         title: String,
         year: Int?,
         season: Int,
