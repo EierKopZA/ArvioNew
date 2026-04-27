@@ -412,6 +412,19 @@ class StreamRepository @Inject constructor(
             if (normalizedUrl.isBlank()) {
                 return@withContext Result.failure(IllegalArgumentException("Addon URL is empty"))
             }
+
+            httpLocalScraperRuntime.fetchInstallCandidate(
+                url = normalizedUrl,
+                customName = customName
+            )?.let { httpCandidate ->
+                return@withContext Result.success(
+                    installHttpLocalScraperCandidate(
+                        normalizedUrl = normalizedUrl,
+                        candidate = httpCandidate
+                    )
+                )
+            }
+
             val manifestUrl = getManifestUrl(normalizedUrl)
 
             val manifest = try {
@@ -421,25 +434,12 @@ class StreamRepository @Inject constructor(
                     url = normalizedUrl,
                     customName = customName
                 ) ?: throw manifestError
-                val addonId = buildAddonInstanceId(httpCandidate.manifest.id, normalizedUrl)
-                val newAddon = Addon(
-                    id = addonId,
-                    name = httpCandidate.name,
-                    version = httpCandidate.version,
-                    description = httpCandidate.description,
-                    isInstalled = true,
-                    isEnabled = true,
-                    type = AddonType.CUSTOM,
-                    url = normalizedUrl,
-                    logo = httpCandidate.logo,
-                    manifest = httpCandidate.manifest,
-                    transportUrl = httpCandidate.transportUrl
+                return@withContext Result.success(
+                    installHttpLocalScraperCandidate(
+                        normalizedUrl = normalizedUrl,
+                        candidate = httpCandidate
+                    )
                 )
-                val addons = installedAddons.first().toMutableList()
-                addons.removeAll { it.id == addonId }
-                addons.add(newAddon)
-                saveAddons(addons)
-                return@withContext Result.success(newAddon)
             }
 
             val transportUrl = getTransportUrl(normalizedUrl)
@@ -490,6 +490,31 @@ class StreamRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private suspend fun installHttpLocalScraperCandidate(
+        normalizedUrl: String,
+        candidate: HttpLocalScraperInstallCandidate
+    ): Addon {
+        val addonId = buildAddonInstanceId(candidate.manifest.id, normalizedUrl)
+        val newAddon = Addon(
+            id = addonId,
+            name = candidate.name,
+            version = candidate.version,
+            description = candidate.description,
+            isInstalled = true,
+            isEnabled = true,
+            type = AddonType.CUSTOM,
+            url = normalizedUrl,
+            logo = candidate.logo,
+            manifest = candidate.manifest,
+            transportUrl = candidate.transportUrl
+        )
+        val addons = installedAddons.first().toMutableList()
+        addons.removeAll { it.id == addonId }
+        addons.add(newAddon)
+        saveAddons(addons)
+        return newAddon
     }
 
     suspend fun ensureCustomAddons(urls: List<String>): List<Result<Addon>> = withContext(Dispatchers.IO) {
