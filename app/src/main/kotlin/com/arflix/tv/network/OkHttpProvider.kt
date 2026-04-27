@@ -1,5 +1,6 @@
 package com.arflix.tv.network
 
+import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
 import coil.ImageLoader
@@ -309,11 +310,17 @@ object OkHttpProvider {
     }
 
     fun createCoilImageLoader(context: Context): ImageLoader {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val imageCacheBytes = if (activityManager?.isLowRamDevice == true) {
+            32 * 1024 * 1024
+        } else {
+            48 * 1024 * 1024
+        }
         return ImageLoader.Builder(context)
             .okHttpClient(coilClient)
             .memoryCache {
                 MemoryCache.Builder(context)
-                    .maxSizePercent(0.15)
+                    .maxSizeBytes(imageCacheBytes)
                     .build()
             }
             .diskCache {

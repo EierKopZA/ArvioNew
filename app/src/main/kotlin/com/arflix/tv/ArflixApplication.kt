@@ -1,7 +1,10 @@
 package com.arflix.tv
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.graphics.Bitmap
+import android.os.Build
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
@@ -40,7 +43,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
-import android.os.Build
 
 /**
  * ARVIO TV Application class
@@ -48,6 +50,8 @@ import android.os.Build
 @HiltAndroidApp
 class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile
+    private var appImageLoader: ImageLoader? = null
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
@@ -130,13 +134,26 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
     override fun newImageLoader(): ImageLoader {
         val isTvDevice = detectDeviceType(this) == DeviceType.TV
+        val isLowRamDevice = isLowRamDevice()
         return ImageLoader.Builder(this)
             // Use the dedicated Coil HTTP client instead of the main API client.
             // Avoids logging interceptor overhead and connection pool contention.
             .okHttpClient(OkHttpProvider.coilClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(if (isTvDevice) 0.11 else 0.14)
+                    // The 2 GB Android TV dump showed Arvio spending most of
+                    // its memory in native bitmap/texture allocations
+                    // (255 MB native heap, 77 MB GPU cache). Use a fixed TV
+                    // image budget instead of a percent of largeHeap memory so
+                    // low-RAM TVs do not drift into zram pressure while rows
+                    // are being scrolled.
+                    .maxSizeBytes(
+                        when {
+                            isTvDevice && isLowRamDevice -> 32 * 1024 * 1024
+                            isTvDevice -> 48 * 1024 * 1024
+                            else -> 64 * 1024 * 1024
+                        }
+                    )
                     .build()
             }
             .diskCache {
@@ -163,6 +180,27 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
                 }
             }
             .build()
+            .also { appImageLoader = it }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (
+            level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+        ) {
+            appImageLoader?.memoryCache?.clear()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        appImageLoader?.memoryCache?.clear()
+    }
+
+    private fun isLowRamDevice(): Boolean {
+        val activityManager = getSystemService(ACTIVITY_SERVICE) as? ActivityManager
+        return activityManager?.isLowRamDevice == true
     }
 
     override val workManagerConfiguration: Configuration
