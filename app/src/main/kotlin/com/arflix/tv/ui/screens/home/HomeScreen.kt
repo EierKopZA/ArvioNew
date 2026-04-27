@@ -2557,8 +2557,8 @@ private fun TvHomeRowsLayer(
         if (!limitRowsDuringStartup || categories.size <= 3) {
             0
         } else {
-            (currentRowIndex - 1)
-                .coerceIn(0, (categories.size - 3).coerceAtLeast(0))
+            currentRowIndex
+                .coerceIn(0, (categories.size - 1).coerceAtLeast(0))
         }
     }
     val renderedCategories = remember(categories, rowWindowStart, limitRowsDuringStartup) {
@@ -2879,7 +2879,7 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
-    val railFocusOverlayActive = isCurrentRow && isFastScrolling && focusedItemIndex >= 0 && totalItems > 0
+    val railFocusOverlayActive = isCurrentRow && isScrollable && focusedItemIndex >= 0 && totalItems > 0
     val railFocusShape = rememberArvioCardShape(ArvioSkin.radius.md)
     // Keep focused card anchored by scrolling the row on every focus change.
     // Use smooth scroll (animated) for D-pad moves to avoid abrupt jumps.
