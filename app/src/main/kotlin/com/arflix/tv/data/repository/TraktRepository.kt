@@ -49,6 +49,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import retrofit2.HttpException
+import java.text.Normalizer
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -2175,8 +2176,8 @@ class TraktRepository @Inject constructor(
         val typedItems = fetchWatchlistItemsByType(auth, "movies") + fetchWatchlistItemsByType(auth, "shows")
         if (typedItems.isNotEmpty()) {
             return typedItems
-                .distinctBy { watchlistIdentity(it) }
                 .sortedByDescending { it.listedAt }
+                .distinctBy { watchlistIdentity(it) }
         }
 
         return traktApi.getWatchlist(auth, clientId)
@@ -2295,7 +2296,14 @@ class TraktRepository @Inject constructor(
             if (sameTitle && movie.year != null && yearCompatible(movie.year, details.releaseDate?.take(4)?.toIntOrNull())) {
                 return details
             }
+            if (movie.year != null && yearCompatible(movie.year, details.releaseDate?.take(4)?.toIntOrNull())) {
+                return details
+            }
             if (sameTitle) exactIdMatches.add(details)
+        }
+
+        if (movie.year == null) {
+            exactIdMatches.firstOrNull()?.let { return it }
         }
 
         val searchMatch = searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)
@@ -2331,7 +2339,14 @@ class TraktRepository @Inject constructor(
             if (sameTitle && show.year != null && yearCompatible(show.year, details.firstAirDate?.take(4)?.toIntOrNull())) {
                 return details
             }
+            if (show.year != null && yearCompatible(show.year, details.firstAirDate?.take(4)?.toIntOrNull())) {
+                return details
+            }
             if (sameTitle) exactIdMatches.add(details)
+        }
+
+        if (show.year == null) {
+            exactIdMatches.firstOrNull()?.let { return it }
         }
 
         val searchMatch = searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)
@@ -2361,12 +2376,19 @@ class TraktRepository @Inject constructor(
                         MediaType.TV -> result.mediaType == "tv"
                     }
                 }
-                .filter { result ->
-                    val candidateTitle = result.title ?: result.name ?: ""
-                    normalizeWatchlistTitle(candidateTitle) == normalizedTitle &&
-                        (year == null || yearCompatible(year, (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull()))
+                .mapNotNull { result ->
+                    val score = watchlistSearchScore(
+                        traktTitle = title,
+                        traktYear = year,
+                        candidateTitle = result.title ?: result.name ?: "",
+                        candidateYear = (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull(),
+                        popularity = result.popularity,
+                        voteCount = result.voteCount
+                    )
+                    if (score > 0) result to score else null
                 }
-                .sortedByDescending { it.popularity }
+                .sortedByDescending { it.second }
+                .map { it.first }
                 .firstOrNull()
                 ?.id
                 ?.takeIf { it > 0 }
@@ -2388,7 +2410,9 @@ class TraktRepository @Inject constructor(
     }
 
     private fun normalizeWatchlistTitle(title: String): String {
-        return title.lowercase(Locale.US)
+        val asciiTitle = Normalizer.normalize(title, Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+        return asciiTitle.lowercase(Locale.US)
             .replace("&", "and")
             .replace(Regex("[^a-z0-9]+"), " ")
             .trim()
@@ -2396,6 +2420,30 @@ class TraktRepository @Inject constructor(
             .removePrefix("a ")
             .removePrefix("an ")
             .replace(" ", "")
+    }
+
+    private fun watchlistSearchScore(
+        traktTitle: String,
+        traktYear: Int?,
+        candidateTitle: String,
+        candidateYear: Int?,
+        popularity: Float,
+        voteCount: Int
+    ): Float {
+        if (!isSameWatchlistTitle(traktTitle, candidateTitle)) return 0f
+
+        var score = 1000f
+        if (traktYear != null && candidateYear != null) {
+            val diff = if (traktYear > candidateYear) traktYear - candidateYear else candidateYear - traktYear
+            if (diff > 1) return 0f
+            score += if (diff == 0) 500f else 250f
+        } else if (traktYear != null || candidateYear != null) {
+            score -= 100f
+        }
+
+        score += popularity.coerceAtMost(250f)
+        score += (voteCount / 100).coerceAtMost(100)
+        return score
     }
 
     private fun yearCompatible(first: Int?, second: Int?): Boolean {
