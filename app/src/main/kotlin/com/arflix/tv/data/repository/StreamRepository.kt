@@ -81,6 +81,7 @@ class StreamRepository @Inject constructor(
     private val cloudstreamRepositoryService: CloudstreamRepositoryService,
     private val cloudstreamPluginInstaller: CloudstreamPluginInstaller,
     private val cloudstreamProviderRuntime: CloudstreamProviderRuntime,
+    private val nuvioLocalScraperRuntime: NuvioLocalScraperRuntime,
     private val invalidationBus: CloudSyncInvalidationBus
 ) {
     companion object {
@@ -110,7 +111,14 @@ class StreamRepository @Inject constructor(
     )
     private val streamResultCache = mutableMapOf<String, CachedStreamResult>()
     private val stremioAddonRuntime = StremioAddonRuntime(
-        movieResolver = { addon, imdbId -> fetchMovieStreamsFromAddon(addon, imdbId) },
+        movieResolver = { addon, request ->
+            fetchMovieStreamsFromAddon(
+                addon = addon,
+                imdbId = request.imdbId,
+                title = request.title,
+                year = request.year
+            )
+        },
         episodeResolver = { addon, request ->
             fetchEpisodeStreamsFromAddon(
                 addon = addon,
@@ -357,7 +365,33 @@ class StreamRepository @Inject constructor(
             }
             val manifestUrl = getManifestUrl(normalizedUrl)
 
-            val manifest = streamApi.getAddonManifest(manifestUrl)
+            val manifest = try {
+                streamApi.getAddonManifest(manifestUrl)
+            } catch (manifestError: Exception) {
+                val nuvioCandidate = nuvioLocalScraperRuntime.fetchInstallCandidate(
+                    url = normalizedUrl,
+                    customName = customName
+                ) ?: throw manifestError
+                val addonId = buildAddonInstanceId(nuvioCandidate.manifest.id, normalizedUrl)
+                val newAddon = Addon(
+                    id = addonId,
+                    name = nuvioCandidate.name,
+                    version = nuvioCandidate.version,
+                    description = nuvioCandidate.description,
+                    isInstalled = true,
+                    isEnabled = true,
+                    type = AddonType.CUSTOM,
+                    url = normalizedUrl,
+                    logo = nuvioCandidate.logo,
+                    manifest = nuvioCandidate.manifest,
+                    transportUrl = nuvioCandidate.transportUrl
+                )
+                val addons = installedAddons.first().toMutableList()
+                addons.removeAll { it.id == addonId }
+                addons.add(newAddon)
+                saveAddons(addons)
+                return@withContext Result.success(newAddon)
+            }
 
             val transportUrl = getTransportUrl(normalizedUrl)
             val addonManifest = convertToAddonManifest(manifest)
@@ -1269,10 +1303,29 @@ class StreamRepository @Inject constructor(
         }
     }
 
-    private suspend fun fetchMovieStreamsFromAddon(addon: Addon, imdbId: String): List<StreamSource> {
+    private suspend fun fetchMovieStreamsFromAddon(
+        addon: Addon,
+        imdbId: String,
+        title: String = "",
+        year: Int? = null
+    ): List<StreamSource> {
         val startedAt = System.currentTimeMillis()
         return try {
             withTimeout(ADDON_TIMEOUT_MS) {
+                if (nuvioLocalScraperRuntime.canHandle(addon)) {
+                    val streams = nuvioLocalScraperRuntime.resolveMovieStreams(
+                        addon = addon,
+                        imdbId = imdbId,
+                        title = title,
+                        year = year
+                    )
+                    recordAddonFetchOutcome(
+                        addonId = addon.id,
+                        success = streams.isNotEmpty(),
+                        latencyMs = System.currentTimeMillis() - startedAt
+                    )
+                    return@withTimeout streams
+                }
                 val (baseUrl, queryParams) = getAddonBaseUrl(addon.url ?: return@withTimeout emptyList())
                 val url = if (queryParams != null) {
                     "$baseUrl/stream/movie/$imdbId.json?$queryParams"
@@ -1336,6 +1389,22 @@ class StreamRepository @Inject constructor(
         val startedAt = System.currentTimeMillis()
         return try {
             withTimeout(ADDON_TIMEOUT_MS) {
+                if (nuvioLocalScraperRuntime.canHandle(addon)) {
+                    val streams = nuvioLocalScraperRuntime.resolveEpisodeStreams(
+                        addon = addon,
+                        imdbId = imdbId,
+                        season = season,
+                        episode = episode,
+                        tmdbId = tmdbId,
+                        title = title
+                    )
+                    recordAddonFetchOutcome(
+                        addonId = addon.id,
+                        success = streams.isNotEmpty(),
+                        latencyMs = System.currentTimeMillis() - startedAt
+                    )
+                    return@withTimeout streams
+                }
                 val (baseUrl, queryParams) = getAddonBaseUrl(addon.url ?: return@withTimeout emptyList())
 
                 val isAnime = animeMapper.isAnimeContent(tmdbId, genreIds, originalLanguage)

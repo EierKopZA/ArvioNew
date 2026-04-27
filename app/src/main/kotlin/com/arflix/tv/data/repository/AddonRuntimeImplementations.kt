@@ -8,7 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 class StremioAddonRuntime(
-    private val movieResolver: suspend (Addon, String) -> List<StreamSource>,
+    private val movieResolver: suspend (Addon, MovieRuntimeRequest) -> List<StreamSource>,
     private val episodeResolver: suspend (Addon, EpisodeRuntimeRequest) -> List<StreamSource>
 ) : AddonRuntime {
     override val kind: RuntimeKind = RuntimeKind.STREMIO
@@ -17,7 +17,7 @@ class StremioAddonRuntime(
         addons: List<Addon>,
         request: MovieRuntimeRequest
     ): List<StreamSource> = coroutineScope {
-        addons.map { addon -> async { movieResolver(addon, request.imdbId) } }
+        addons.map { addon -> async { movieResolver(addon, request) } }
             .awaitAll()
             .flatten()
     }
