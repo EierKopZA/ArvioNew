@@ -2,19 +2,19 @@
   <img src="screenshots/banner.png" alt="ARVIO" width="400"/>
 </p>
 
-# ARVIO - Media Hub for Android TV
+# ARVIO - Media Hub for Android TV, Fire TV, Mobile, and Tablet
 
-A media hub application for Android TV with a modern, beautiful interface. Browse your media library, discover content, and play videos from your configured sources.
+A media hub application for Android TV, Fire TV, phones, and tablets with a modern interface. Browse catalogs, sync your setup across profiles and devices, discover content, watch IPTV, and play videos from your configured sources.
 
 ## Features
 
-- **Live TV (IPTV)** - M3U playlist support with group navigation and mini-player
+- **Live TV (IPTV)** - M3U/Xtream playlist support with group navigation, EPG, favorites, recents, and fullscreen playback
 - **Catalog Management** - Built-in + custom Trakt/MDBList catalogs with ordering controls
-- **ARVIO Cloud (Optional)** - QR sign-in with cloud sync for profiles, addons, catalogs and IPTV config
-- **Stremio Addon Support** - Connect your favorite addons
+- **ARVIO Cloud (Optional)** - QR sign-in with cloud sync for profiles, settings, addons, catalogs, watch state, subtitles, and IPTV config
+- **Addon Support** - Connect compatible addons and community HTTP sources
 - **Media Browser** - Browse and discover content with TMDB metadata
 - **Beautiful UI** - Modern horizontal row browsing optimized for D-pad/remote
-- **Trakt.tv Integration** - Sync watch history across devices
+- **Trakt.tv Integration** - Sync watch history, watchlist, and in-progress items per profile
 - **Watchlist** - Save items to watch later
 - **Multi-profile** - Multiple user profiles per account
 - **Subtitle & Audio** - Multiple tracks with language selection
@@ -56,7 +56,9 @@ Note: If you mean **DTX**, ARVIO supports **DTS-family audio formats** (DTS/DTS-
 [<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="180">](https://play.google.com/store/apps/details?id=com.arvio.tv&pcampaignid=web_share)
 
 ### Direct Download
-[Download APK](https://gitlab.com/arvio1/ARVIO/-/releases) from the Releases page.
+[Download ARVIO V1.9.9 APK](https://gitlab.com/arvio1/ARVIO/-/raw/main/releases/v1.9.9/ARVIO%20V1.9.9.apk?inline=false) or browse the [Releases page](https://gitlab.com/arvio1/ARVIO/-/releases).
+
+Downloader app code: not published yet. AFTVnews requires a manual captcha step before a numeric code can be generated.
 
 ## Build And Run
 
@@ -156,4 +158,4 @@ This application was developed with significant assistance from AI (Claude by An
 
 ## Disclaimer
 
-ARVIO is a media hub application that does not host, store, or distribute any content. It is a player interface that connects to user-configured Stremio addons and external services. Users are solely responsible for the addons they install and the content they access. The developers are not responsible for any misuse of this application.
+ARVIO is a media hub application that does not host, store, or distribute any content. It is a player interface that connects to user-configured addons and external services. Users are solely responsible for the addons they install and the content they access. The developers are not responsible for any misuse of this application.
