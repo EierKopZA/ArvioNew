@@ -47,6 +47,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.datetime.Clock
 import org.json.JSONObject
@@ -78,6 +81,17 @@ private data class AccountSyncStateRow(
     val updated_at: String? = null
 )
 
+@Serializable
+private data class UserSettingsAccountSyncRow(
+    val settings: JsonObject? = null
+)
+
+@Serializable
+private data class UserSettingsAccountSyncUpdate(
+    val user_id: String,
+    val settings: JsonObject
+)
+
 /**
  * Authentication state
  */
@@ -103,6 +117,8 @@ class AuthRepository @Inject constructor(
 ) {
     private val TAG = "AuthRepository"
     private val accountSyncMutationMutex = Mutex()
+    private val ACCOUNT_SYNC_PAYLOAD_KEY = "accountSyncPayload"
+    private val ACCOUNT_SYNC_UPDATED_AT_KEY = "accountSyncUpdatedAt"
 
     // DataStore keys
     private object PrefsKeys {
@@ -871,7 +887,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun loadAccountSyncPayload(): Result<String?> {
         val userId = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
-        return try {
+        val accountSyncResult = runCatching {
             ensureValidSession()
             val row = supabase.postgrest
                 .from("account_sync_state")
@@ -879,15 +895,19 @@ class AuthRepository @Inject constructor(
                     filter { eq("user_id", userId) }
                 }
                 .decodeSingleOrNull<AccountSyncStateRow>()
-            Result.success(row?.payload)
-        } catch (e: Exception) {
-            Result.failure(e)
+            row?.payload
         }
+        if (accountSyncResult.isSuccess) {
+            return Result.success(accountSyncResult.getOrNull())
+        }
+
+        return loadAccountSyncPayloadFromUserSettings()
+            .recoverCatching { throw accountSyncResult.exceptionOrNull() ?: it }
     }
 
     suspend fun saveAccountSyncPayload(payload: String): Result<Unit> {
         val userId = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
-        return try {
+        val accountSyncResult = runCatching {
             ensureValidSession()
             supabase.postgrest
                 .from("account_sync_state")
@@ -898,6 +918,51 @@ class AuthRepository @Inject constructor(
                         "updated_at" to Clock.System.now().toString()
                     )
                 )
+        }
+        if (accountSyncResult.isSuccess) return Result.success(Unit)
+
+        return saveAccountSyncPayloadToUserSettings(userId, payload)
+            .recoverCatching { throw accountSyncResult.exceptionOrNull() ?: it }
+    }
+
+    private suspend fun loadAccountSyncPayloadFromUserSettings(): Result<String?> {
+        val userId = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            ensureValidSession()
+            val row = supabase.postgrest
+                .from("user_settings")
+                .select {
+                    filter { eq("user_id", userId) }
+                }
+                .decodeSingleOrNull<UserSettingsAccountSyncRow>()
+            Result.success(row?.settings?.get(ACCOUNT_SYNC_PAYLOAD_KEY)?.jsonPrimitive?.contentOrNull)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun saveAccountSyncPayloadToUserSettings(userId: String, payload: String): Result<Unit> {
+        return try {
+            ensureValidSession()
+            val existingSettings = runCatching {
+                supabase.postgrest
+                    .from("user_settings")
+                    .select {
+                        filter { eq("user_id", userId) }
+                    }
+                    .decodeSingleOrNull<UserSettingsAccountSyncRow>()
+                    ?.settings
+            }.getOrNull()
+
+            val updatedSettings = buildJsonObject {
+                existingSettings?.forEach { (key, value) -> put(key, value) }
+                put(ACCOUNT_SYNC_PAYLOAD_KEY, JsonPrimitive(payload))
+                put(ACCOUNT_SYNC_UPDATED_AT_KEY, JsonPrimitive(Clock.System.now().toString()))
+            }
+
+            supabase.postgrest
+                .from("user_settings")
+                .upsert(UserSettingsAccountSyncUpdate(user_id = userId, settings = updatedSettings))
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
