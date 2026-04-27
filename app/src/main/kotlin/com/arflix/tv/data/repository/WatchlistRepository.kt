@@ -35,7 +35,8 @@ data class LocalWatchlistItem(
     val title: String,
     val posterPath: String? = null,
     val backdropPath: String? = null,
-    val addedAt: Long = System.currentTimeMillis()
+    val addedAt: Long = System.currentTimeMillis(),
+    val sourceOrder: Int = Int.MAX_VALUE
 )
 
 /**
@@ -248,7 +249,8 @@ class WatchlistRepository @Inject constructor(
         val ordered = mutableListOf<LocalWatchlistItem>()
 
         // Trakt items are already newest-first by listed_at.
-        for ((index, item) in traktItems.withIndex()) {
+        val orderedTraktItems = traktItems.toTraktOrder()
+        for ((index, item) in orderedTraktItems.withIndex()) {
             val typeStr = if (item.mediaType == MediaType.TV) "tv" else "movie"
             val key = "$typeStr:${item.id}"
             val local = existingByKey[key]
@@ -258,14 +260,16 @@ class WatchlistRepository @Inject constructor(
                     title = item.title.ifBlank { local.title },
                     posterPath = item.image.ifBlank { local.posterPath },
                     backdropPath = item.backdrop ?: local.backdropPath,
-                    addedAt = traktOrderAddedAt
+                    addedAt = traktOrderAddedAt,
+                    sourceOrder = index
                 ) ?: LocalWatchlistItem(
                     tmdbId = item.id,
                     mediaType = typeStr,
                     title = item.title,
                     posterPath = item.image,
                     backdropPath = item.backdrop,
-                    addedAt = traktOrderAddedAt
+                    addedAt = traktOrderAddedAt,
+                    sourceOrder = index
                 )
             )
         }
@@ -334,7 +338,7 @@ class WatchlistRepository @Inject constructor(
                 LocalWatchlistItem::class.java
             ).type
             (gson.fromJson<List<LocalWatchlistItem>>(json, type) ?: emptyList())
-                .sortedByDescending { it.addedAt }
+                .sortedWith(compareBy<LocalWatchlistItem> { it.sourceOrder }.thenByDescending { it.addedAt })
         } catch (_: Exception) {
             emptyList()
         }
@@ -373,7 +377,8 @@ class WatchlistRepository @Inject constructor(
                     mediaType = MediaType.TV,
                     image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" } ?: "",
                     backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
-                    addedAt = item.addedAt
+                    addedAt = item.addedAt,
+                    sourceOrder = item.sourceOrder
                 )
             } else {
                 val details = tmdbApi.getMovieDetails(item.tmdbId, apiKey)
@@ -389,7 +394,8 @@ class WatchlistRepository @Inject constructor(
                     mediaType = MediaType.MOVIE,
                     image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" } ?: "",
                     backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
-                    addedAt = item.addedAt
+                    addedAt = item.addedAt,
+                    sourceOrder = item.sourceOrder
                 )
             }
         } catch (_: Exception) {
@@ -403,7 +409,8 @@ class WatchlistRepository @Inject constructor(
                 mediaType = if (item.mediaType == "tv") MediaType.TV else MediaType.MOVIE,
                 image = item.posterPath ?: "",
                 backdrop = item.backdropPath,
-                addedAt = item.addedAt
+                addedAt = item.addedAt,
+                sourceOrder = item.sourceOrder
             )
         }
     }
@@ -425,7 +432,15 @@ class WatchlistRepository @Inject constructor(
             mediaType = type,
             image = posterPath.orEmpty(),
             backdrop = backdropPath,
-            addedAt = addedAt
+            addedAt = addedAt,
+            sourceOrder = sourceOrder
+        )
+    }
+
+    private fun List<MediaItem>.toTraktOrder(): List<MediaItem> {
+        return sortedWith(
+            compareBy<MediaItem> { it.sourceOrder }
+                .thenByDescending { it.addedAt }
         )
     }
 

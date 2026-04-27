@@ -2134,13 +2134,15 @@ class TraktRepository @Inject constructor(
         val watchlist = fetchAllWatchlistItems(auth)
         val semaphore = Semaphore(6)
         return coroutineScope {
-            watchlist.map { item ->
+            watchlist.mapIndexed { index, item ->
                 async {
                     semaphore.withPermit {
-                        hydrateWatchlistItem(item)
+                        hydrateWatchlistItem(item, sourceOrder = index)
                     }
                 }
-            }.awaitAll().filterNotNull()
+            }.awaitAll()
+                .filterNotNull()
+                .sortedWith(compareBy<MediaItem> { it.sourceOrder }.thenByDescending { it.addedAt })
         }
     }
 
@@ -2263,7 +2265,7 @@ class TraktRepository @Inject constructor(
         ).joinToString(":").ifBlank { "${item.type}:${item.rank}:${item.listedAt}" }
     }
 
-    private suspend fun hydrateWatchlistItem(item: TraktWatchlistItem): MediaItem? {
+    private suspend fun hydrateWatchlistItem(item: TraktWatchlistItem, sourceOrder: Int): MediaItem? {
         val listedAtMs = parseTraktListedAtMs(item.listedAt)
         return when (item.type) {
             "movie" -> item.movie?.let { movie ->
@@ -2279,7 +2281,8 @@ class TraktRepository @Inject constructor(
                     image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
                         ?: details.backdropPath?.let { "${Constants.BACKDROP_BASE}$it" } ?: "",
                     backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
-                    addedAt = listedAtMs
+                    addedAt = listedAtMs,
+                    sourceOrder = sourceOrder
                 )
             }
             "show" -> item.show?.let { show ->
@@ -2295,7 +2298,8 @@ class TraktRepository @Inject constructor(
                     image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
                         ?: details.backdropPath?.let { "${Constants.BACKDROP_BASE}$it" } ?: "",
                     backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
-                    addedAt = listedAtMs
+                    addedAt = listedAtMs,
+                    sourceOrder = sourceOrder
                 )
             }
             else -> null

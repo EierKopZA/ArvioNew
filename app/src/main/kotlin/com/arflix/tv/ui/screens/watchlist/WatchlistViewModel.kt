@@ -43,6 +43,13 @@ class WatchlistViewModel @Inject constructor(
     val logoUrls: StateFlow<Map<String, String>> = _logoUrls.asStateFlow()
     private var traktSyncInFlight = false
 
+    private fun List<MediaItem>.watchlistDisplayOrder(): List<MediaItem> {
+        return sortedWith(
+            compareBy<MediaItem> { it.sourceOrder }
+                .thenByDescending { it.addedAt }
+        )
+    }
+
     init {
         observeWatchlistChanges()
         loadWatchlistInstant()
@@ -53,11 +60,12 @@ class WatchlistViewModel @Inject constructor(
             watchlistRepository.watchlistItems.collect { items ->
                 if (traktSyncInFlight) return@collect
                 if (items.isNotEmpty() || _uiState.value.items.isEmpty()) {
+                    val orderedItems = items.watchlistDisplayOrder()
                     _uiState.value = _uiState.value.copy(
-                        items = items,
+                        items = orderedItems,
                         isLoading = false
                     )
-                    fetchLogos(items)
+                    fetchLogos(orderedItems)
                 }
             }
         }
@@ -101,7 +109,7 @@ class WatchlistViewModel @Inject constructor(
             try {
                 val syncedFromTrakt = syncTraktWatchlistSuspend()
                 if (!syncedFromTrakt && !traktConnected) {
-                    val items = watchlistRepository.getWatchlistItems()
+                    val items = watchlistRepository.getWatchlistItems().watchlistDisplayOrder()
                     _uiState.value = WatchlistUiState(
                         isLoading = false,
                         items = items
@@ -137,7 +145,7 @@ class WatchlistViewModel @Inject constructor(
                 val syncedFromTrakt = syncTraktWatchlistSuspend()
                 val traktConnected = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
                 if (!syncedFromTrakt && !traktConnected) {
-                    val items = watchlistRepository.refreshWatchlistItems()
+                    val items = watchlistRepository.refreshWatchlistItems().watchlistDisplayOrder()
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         items = items
@@ -193,11 +201,12 @@ class WatchlistViewModel @Inject constructor(
             if (!hasTraktAuth) {
                 false
             } else {
-                _uiState.value = WatchlistUiState(isLoading = false, items = traktItems)
-                fetchLogos(traktItems)
+                val orderedTraktItems = traktItems.watchlistDisplayOrder()
+                _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
+                fetchLogos(orderedTraktItems)
 
-                watchlistRepository.syncFromTraktOrder(traktItems)
-                _uiState.value = WatchlistUiState(isLoading = false, items = traktItems)
+                watchlistRepository.syncFromTraktOrder(orderedTraktItems)
+                _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
                 runCatching { cloudSyncRepository.pushToCloud() }
                 true
             }

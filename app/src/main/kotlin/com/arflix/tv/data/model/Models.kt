@@ -47,6 +47,8 @@ data class MediaItem(
     val popularity: Float = 0f,
     // Source-specific added timestamp, used for exact newest-first watchlist ordering.
     val addedAt: Long = 0L,
+    // Explicit source order when a remote list already gives the correct order.
+    val sourceOrder: Int = Int.MAX_VALUE,
     // Placeholder card - shows skeleton loading animation
     val isPlaceholder: Boolean = false
 ) : Serializable
