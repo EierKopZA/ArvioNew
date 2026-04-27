@@ -26,4 +26,5 @@ Thank you to everyone who helped with this release, including:
 - Smoothness references: Android TV device traces and NuvioTV public release/changelog notes for performance direction.
 
 ## Download
+- AFTVnews / Downloader code: `9383706`
 - Direct APK: `https://gitlab.com/arvio1/ARVIO/-/raw/main/releases/v1.9.9/ARVIO%20V1.9.9.apk?inline=false`

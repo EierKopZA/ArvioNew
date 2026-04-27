@@ -58,7 +58,7 @@ Note: If you mean **DTX**, ARVIO supports **DTS-family audio formats** (DTS/DTS-
 ### Direct Download
 [Download ARVIO V1.9.9 APK](https://gitlab.com/arvio1/ARVIO/-/raw/main/releases/v1.9.9/ARVIO%20V1.9.9.apk?inline=false) or browse the [Releases page](https://gitlab.com/arvio1/ARVIO/-/releases).
 
-Downloader app code: not published yet. AFTVnews requires a manual captcha step before a numeric code can be generated.
+Downloader app code: `9383706`
 
 ## Build And Run
 
