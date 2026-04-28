@@ -80,7 +80,8 @@ import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
-import com.arflix.tv.util.tr
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 // Modern glassy colors
 private val GlassWhite = Color.White.copy(alpha = 0.08f)
@@ -302,7 +303,7 @@ fun StreamSelector(
                         // Header without icon
                         Column(modifier = Modifier.padding(bottom = 20.dp)) {
                             Text(
-                                text = tr("Sources"),
+                                text = stringResource(R.string.sources),
                                 style = ArflixTypography.label.copy(
                                     fontSize = 12.sp,
                                     letterSpacing = 1.sp
@@ -365,7 +366,7 @@ fun StreamSelector(
                         if (tabLabels.size > 1) {
                             Spacer(modifier = Modifier.height(20.dp))
                             Text(
-                                text = tr("FILTER BY SOURCE"),
+                                text = stringResource(R.string.sources).uppercase(),
                                 style = ArflixTypography.label.copy(
                                     fontSize = 10.sp,
                                     letterSpacing = 1.sp
@@ -399,7 +400,7 @@ fun StreamSelector(
                 ) {
                     // Header
                     Text(
-                        text = tr("Available Sources"),
+                        text = stringResource(R.string.available_sources),
                         style = ArflixTypography.body.copy(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
@@ -417,7 +418,7 @@ fun StreamSelector(
                                 LoadingIndicator(color = Pink, size = 48.dp)
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = tr("Finding sources..."),
+                                    text = stringResource(R.string.finding_sources),
                                     style = ArflixTypography.body.copy(fontSize = 14.sp),
                                     color = TextSecondary
                                 )
@@ -520,7 +521,7 @@ fun StreamSelector(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = tr("${streams.size} sources available"),
+                                text = "${streams.size} ${stringResource(R.string.sources_available)}",
                                 style = ArflixTypography.caption.copy(fontSize = 12.sp),
                                 color = TextSecondary
                             )
@@ -535,7 +536,7 @@ fun StreamSelector(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = tr("Close"),
+                                contentDescription = stringResource(R.string.close),
                                 tint = TextPrimary,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -596,7 +597,7 @@ fun StreamSelector(
                                 LoadingIndicator(color = Pink, size = 40.dp)
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = tr("Finding sources..."),
+                                    text = stringResource(R.string.finding_sources),
                                     style = ArflixTypography.body.copy(fontSize = 14.sp),
                                     color = TextSecondary
                                 )
@@ -961,7 +962,7 @@ private fun MobileStreamCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = tr("Selected"),
+                    contentDescription = stringResource(R.string.selected),
                     tint = Color.Black,
                     modifier = Modifier.size(14.dp)
                 )
@@ -1080,7 +1081,7 @@ private fun GlassyStreamCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = tr("Play"),
+                    contentDescription = stringResource(R.string.play),
                     tint = if (isFocused) Color.Black else Color.White.copy(alpha = 0.75f),
                     modifier = Modifier.size(18.dp)
                 )
@@ -1124,7 +1125,7 @@ private fun GlassyStreamCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
-                        contentDescription = tr("Selected"),
+                        contentDescription = stringResource(R.string.selected),
                         tint = Color.Black,
                         modifier = Modifier.size(14.dp)
                     )

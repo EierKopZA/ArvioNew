@@ -160,7 +160,6 @@ import com.arflix.tv.ui.theme.BackgroundGradientEnd
 import com.arflix.tv.ui.theme.BackgroundGradientStart
 import com.arflix.tv.util.isInCinema
 import com.arflix.tv.util.parseRatingValue
-import com.arflix.tv.util.tr
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -183,6 +182,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.res.stringResource
 
 // Genre ID to name mapping (TMDB standard)
 private val movieGenres = mapOf(
@@ -242,6 +242,22 @@ private class HomeFocusState(
                 }
             )
     }
+}
+
+@Composable
+private fun localizedCategoryTitle(category: Category): String = when (category.id) {
+    "continue_watching"        -> stringResource(R.string.continue_watching)
+    "trending_movies"          -> stringResource(R.string.trending_movies)
+    "trending_series"          -> stringResource(R.string.trending_series)
+    "trending_tv"              -> stringResource(R.string.trending_in_shows)
+    "trending_anime"           -> stringResource(R.string.trending_anime)
+    "collection_row_service"   -> stringResource(R.string.services)
+    "collection_row_genre"     -> stringResource(R.string.genres)
+    "collection_row_decade"    -> stringResource(R.string.decades)
+    "collection_row_franchise" -> stringResource(R.string.franchises)
+    "collection_row_network"   -> stringResource(R.string.networks)
+    "collection_row_featured"  -> stringResource(R.string.featured)
+    else                       -> category.title
 }
 
 private fun getFocusedItem(categories: List<Category>, rowIndex: Int, itemIndex: Int): MediaItem? {
@@ -993,7 +1009,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = tr("Unable to load content"),
+                        text = stringResource(R.string.no_results),
                         style = ArflixTypography.sectionTitle,
                         color = TextPrimary
                     )
@@ -1007,7 +1023,7 @@ fun HomeScreen(
                     androidx.tv.material3.Button(
                         onClick = { viewModel.refresh() }
                     ) {
-                        Text(tr("Retry"))
+                        Text(stringResource(R.string.retry))
                     }
                 }
             }
@@ -1183,7 +1199,7 @@ private fun HeroSection(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = tr("In Cinema"),
+                            text = stringResource(R.string.in_cinema),
                             style = ArflixTypography.caption.copy(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
@@ -1214,7 +1230,7 @@ private fun HeroSection(
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = tr("LIVE"),
+                                text = stringResource(R.string.live).uppercase(),
                                 style = ArflixTypography.caption.copy(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
@@ -1689,12 +1705,12 @@ private fun MobileHeroOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = tr("Play"),
+                            contentDescription = stringResource(R.string.play),
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = tr("Play"),
+                            text = stringResource(R.string.play),
                             style = ArflixTypography.caption.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -1717,12 +1733,12 @@ private fun MobileHeroOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Info,
-                            contentDescription = tr("Details"),
+                            contentDescription = stringResource(R.string.details),
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = tr("Details"),
+                            text = stringResource(R.string.details),
                             style = ArflixTypography.caption.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -2503,7 +2519,7 @@ private fun MobileHomeRowsLayer(
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 // Section title
                 Text(
-                    text = category.title,
+                    text = localizedCategoryTitle(category),
                     style = ArflixTypography.sectionTitle.copy(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
@@ -2914,7 +2930,7 @@ private fun IncludedWithPrimeBadge() {
                 .background(Color.Transparent) // No circle bg in screenshot, just check
         )
         Text(
-            text = tr("Included with Prime"),
+            text = stringResource(R.string.included_with_prime),
             style = ArflixTypography.caption.copy(
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp
@@ -3143,7 +3159,7 @@ private fun ContentRow(
     ) {
         // Section title - clean white text, aligned with cards
         Text(
-            text = category.title,
+            text = localizedCategoryTitle(category),
             style = ArflixTypography.sectionTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
             color = Color.White,
             modifier = Modifier.padding(start = startPadding, bottom = 12.dp)

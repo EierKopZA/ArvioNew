@@ -148,6 +148,8 @@ import com.arflix.tv.ui.theme.SuccessGreen
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlin.math.abs
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 internal fun cloudstreamPluginUnsupportedLabel(
     pluginApiVersion: Int,
@@ -933,7 +935,7 @@ fun SettingsScreen(
                         .padding(vertical = 32.dp, horizontal = 24.dp)
                 ) {
                     Text(
-                        text = tr("Settings"),
+                        text = stringResource(R.string.settings),
                         style = ArflixTypography.heroTitle.copy(fontSize = androidx.compose.ui.unit.TextUnit.Unspecified),
                         color = TextPrimary,
                         modifier = Modifier
@@ -958,17 +960,14 @@ fun SettingsScreen(
                                     "accounts" -> Icons.Default.Person
                                     else -> Icons.Default.Settings
                                 },
-                                // Display name — internal route keys ("stremio" etc.) are
-                                // kept for stability of conditionals, but user-visible labels
-                                // follow product naming.
                                 title = when (section) {
-                                    "general" -> "General"
-                                    "iptv" -> "IPTV"
-                                    "catalogs" -> "Catalogs"
-                                    "stremio" -> "Addons"
-                                    "cloudstream" -> "Cloudstream"
-                                    "accounts" -> "Account"
-                                    else -> tr(section.replaceFirstChar { it.uppercase() })
+                                    "general" -> stringResource(R.string.general)
+                                    "iptv" -> stringResource(R.string.iptv)
+                                    "catalogs" -> stringResource(R.string.catalogs)
+                                    "stremio" -> stringResource(R.string.addons)
+                                    "cloudstream" -> stringResource(R.string.cloudstream)
+                                    "accounts" -> stringResource(R.string.accounts)
+                                    else -> section.replaceFirstChar { it.uppercase() }
                                 },
                                 isSelected = sectionIndex == index,
                                 isFocused = activeZone == Zone.SECTION && sectionIndex == index,
@@ -1161,7 +1160,7 @@ fun SettingsScreen(
         // Custom Addon Input Modal
         if (showCustomAddonInput) {
             InputModal(
-                title = "Add Addon",
+                title = stringResource(R.string.add_addon),
                 fields = listOf(
                     InputField(label = "URL", value = customAddonUrl, onValueChange = { customAddonUrl = it })
                 ),
@@ -1182,7 +1181,7 @@ fun SettingsScreen(
 
         if (showCloudstreamRepoInput) {
             InputModal(
-                title = "Add Cloudstream Repository",
+                title = stringResource(R.string.add_cloudstream_repo),
                 fields = listOf(
                     InputField(label = "Repository URL", value = cloudstreamRepoUrl, onValueChange = { cloudstreamRepoUrl = it })
                 ),
@@ -1286,7 +1285,7 @@ fun SettingsScreen(
 
         if (showCatalogInput) {
             InputModal(
-                title = "Add Catalog",
+                title = stringResource(R.string.add_catalog),
                 fields = listOf(
                     InputField(label = "Catalog URL", value = catalogInputUrl, onValueChange = { catalogInputUrl = it })
                 ),
@@ -1306,7 +1305,7 @@ fun SettingsScreen(
 
         if (showCatalogRename) {
             InputModal(
-                title = "Rename Catalog",
+                title = stringResource(R.string.rename_catalog),
                 fields = listOf(
                     InputField(label = "Title", value = renameCatalogTitle, onValueChange = { renameCatalogTitle = it })
                 ),
@@ -1365,7 +1364,7 @@ fun SettingsScreen(
 
         if (showSubtitlePicker) {
             SubtitlePickerModal(
-                title = "Default Subtitles",
+                title = stringResource(R.string.default_subtitle),
                 options = uiState.subtitleOptions,
                 selected = uiState.defaultSubtitle,
                 focusedIndex = subtitlePickerIndex,
@@ -1380,7 +1379,7 @@ fun SettingsScreen(
 
         if (showAudioLanguagePicker) {
             SubtitlePickerModal(
-                title = "Default Audio",
+                title = stringResource(R.string.default_audio),
                 options = uiState.audioLanguageOptions,
                 selected = uiState.defaultAudioLanguage,
                 focusedIndex = audioLanguagePickerIndex,
@@ -1395,7 +1394,7 @@ fun SettingsScreen(
 
         if (showDnsProviderPicker) {
             SubtitlePickerModal(
-                title = "DNS Provider",
+                title = stringResource(R.string.dns_provider),
                 options = uiState.dnsProviderOptions,
                 selected = uiState.dnsProvider,
                 focusedIndex = dnsProviderPickerIndex,
@@ -1410,7 +1409,7 @@ fun SettingsScreen(
 
         if (showContentLanguagePicker) {
             SubtitlePickerModal(
-                title = "App Language",
+                title = stringResource(R.string.app_language),
                 options = TMDB_LANGUAGES.map { it.second },
                 selected = TMDB_LANGUAGES.firstOrNull { it.first == uiState.contentLanguage }?.second ?: "English",
                 focusedIndex = contentLanguagePickerIndex,
@@ -2471,14 +2470,14 @@ private fun MobileSettingsLayout(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = tr("Settings"),
+                    text = stringResource(R.string.settings),
                     style = ArflixTypography.heroTitle.copy(fontSize = 28.sp),
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
                 if (uiState.isLoggedIn) {
                     Text(
-                        text = tr("Log Out"),
+                        text = stringResource(R.string.log_out),
                         style = ArflixTypography.button,
                         color = Pink,
                         modifier = Modifier.clickable { viewModel.logout() }.padding(8.dp)
@@ -2503,7 +2502,7 @@ private fun MobileSettingsLayout(
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowBack,
-                    contentDescription = tr("Back"),
+                    contentDescription = stringResource(R.string.back),
                     tint = TextPrimary,
                     modifier = Modifier
                         .clickable { onNavigate("MAIN") }
@@ -2511,7 +2510,7 @@ private fun MobileSettingsLayout(
                         .size(28.dp)
                 )
                 Text(
-                    text = tr(page),
+                    text = page,
                     style = ArflixTypography.heroTitle.copy(fontSize = 24.sp),
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
@@ -2556,21 +2555,21 @@ private fun MobileSettingsMainPage(
             MobileSettingsCategory(title = "LANGUAGES") {
                 MobileSettingsRow(
                     icon = Icons.Default.Language,
-                    title = "Content Language",
+                    title = stringResource(R.string.content_language),
                     value = TMDB_LANGUAGES.firstOrNull { it.first == uiState.contentLanguage }?.second ?: uiState.contentLanguage,
                     isFocused = false,
                     onClick = openContentLanguagePicker
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.Subtitles,
-                    title = "Default Subtitle",
+                    title = stringResource(R.string.default_subtitle),
                     value = uiState.defaultSubtitle,
                     isFocused = false,
                     onClick = openSubtitlePicker
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.VolumeUp,
-                    title = "Default Audio",
+                    title = stringResource(R.string.default_audio),
                     value = uiState.defaultAudioLanguage,
                     isFocused = false,
                     showDivider = false,
@@ -2616,7 +2615,7 @@ private fun MobileSettingsMainPage(
                 if (uiState.isLoggedIn) {
                     MobileSettingsRow(
                         icon = Icons.Default.Person,
-                        title = "Cloud Account",
+                        title = stringResource(R.string.cloud_account),
                         subtitle = uiState.accountEmail ?: "",
                         value = "Force Sync",
                         isFocused = false,
@@ -2624,7 +2623,7 @@ private fun MobileSettingsMainPage(
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.SwitchAccount,
-                        title = "Switch Profile",
+                        title = stringResource(R.string.switch_profile),
                         value = "",
                         isFocused = false,
                         onClick = onSwitchProfile
@@ -2632,7 +2631,7 @@ private fun MobileSettingsMainPage(
                 } else {
                     MobileSettingsRow(
                         icon = Icons.Default.Person,
-                        title = "Cloud Account",
+                        title = stringResource(R.string.cloud_account),
                         value = "Sign In",
                         isFocused = false,
                         onClick = { viewModel.openCloudEmailPasswordDialog() }
@@ -2640,14 +2639,14 @@ private fun MobileSettingsMainPage(
                 }
                 MobileSettingsRow(
                     icon = Icons.Default.Movie,
-                    title = "Trakt Account",
+                    title = stringResource(R.string.trakt_account),
                     value = if (uiState.isTraktAuthenticated) "Disconnect" else "Connect",
                     isFocused = false,
                     onClick = { if (uiState.isTraktAuthenticated) viewModel.disconnectTrakt() else viewModel.startTraktAuth() }
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
-                    title = "App Version",
+                    title = stringResource(R.string.app_version),
                     subtitle = "V${BuildConfig.VERSION_NAME}",
                     value = if (uiState.isAppUpdateAvailable) "Update Available" else "Check Updates",
                     isFocused = false,
@@ -2689,42 +2688,42 @@ private fun MobileSettingsSubPage(
                 MobileSettingsCategory(title = "PLAYBACK") {
                     MobileSettingsRow(
                         icon = Icons.Default.PlayArrow,
-                        title = "Auto Play Next Episode",
+                        title = stringResource(R.string.auto_play_next_title),
                         value = if (uiState.autoPlayNext) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setAutoPlayNext(!uiState.autoPlayNext) }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.PlayArrow,
-                        title = "Auto Play Single Source",
+                        title = stringResource(R.string.autoplay),
                         value = if (uiState.autoPlaySingleSource) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource) }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.HighQuality,
-                        title = "Auto Play Min Quality",
+                        title = stringResource(R.string.auto_play_min_quality),
                         value = uiState.autoPlayMinQuality,
                         isFocused = false,
                         onClick = { viewModel.cycleAutoPlayMinQuality() }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Movie,
-                        title = "Trailer Auto Play",
+                        title = stringResource(R.string.trailer_auto_play),
                         value = if (uiState.trailerAutoPlay) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay) }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Settings,
-                        title = "Frame Rate Matching",
+                        title = stringResource(R.string.frame_rate),
                         value = uiState.frameRateMatchingMode,
                         isFocused = false,
                         onClick = { viewModel.cycleFrameRateMatchingMode() }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.HighQuality,
-                        title = "Quality Regex Filters",
+                        title = stringResource(R.string.quality_filters),
                         value = uiState.qualityFilterPresetLabel,
                         isFocused = false,
                         showDivider = false,
@@ -2734,14 +2733,14 @@ private fun MobileSettingsSubPage(
                 MobileSettingsCategory(title = "CONTROLS") {
                     MobileSettingsRow(
                         icon = Icons.Default.Person,
-                        title = "Skip Profile Selection",
+                        title = stringResource(R.string.skip_profile),
                         value = if (uiState.skipProfileSelection) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setSkipProfileSelection(!uiState.skipProfileSelection) }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Language,
-                        title = "DNS Provider",
+                        title = stringResource(R.string.dns_provider),
                         value = uiState.dnsProvider,
                         isFocused = false,
                         showDivider = false,
@@ -2753,14 +2752,14 @@ private fun MobileSettingsSubPage(
                 MobileSettingsCategory(title = "SUBTITLES") {
                     MobileSettingsRow(
                         icon = Icons.Default.Subtitles,
-                        title = "Subtitle Size",
+                        title = stringResource(R.string.subtitle_size),
                         value = uiState.subtitleSize,
                         isFocused = false,
                         onClick = { viewModel.cycleSubtitleSize() }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Subtitles,
-                        title = "Subtitle Color",
+                        title = stringResource(R.string.subtitle_color),
                         value = uiState.subtitleColor,
                         isFocused = false,
                         showDivider = false,
@@ -2770,7 +2769,7 @@ private fun MobileSettingsSubPage(
                 MobileSettingsCategory(title = "AUDIO") {
                     MobileSettingsRow(
                         icon = Icons.Default.VolumeUp,
-                        title = "Volume Boost",
+                        title = stringResource(R.string.volume_boost),
                         value = if (uiState.volumeBoostDb > 0) "+${uiState.volumeBoostDb} dB" else "Off",
                         isFocused = false,
                         showDivider = false,
@@ -2782,28 +2781,28 @@ private fun MobileSettingsSubPage(
                 MobileSettingsCategory(title = "APPEARANCE") {
                     MobileSettingsRow(
                         icon = Icons.Default.Palette,
-                        title = "UI Mode",
+                        title = stringResource(R.string.ui_mode),
                         value = uiState.deviceModeOverride.replaceFirstChar { it.uppercase() },
                         isFocused = false,
                         onClick = openUiModeWarningDialog
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Widgets,
-                        title = "Card Layout Mode",
+                        title = stringResource(R.string.card_layout),
                         value = uiState.cardLayoutMode,
                         isFocused = false,
                         onClick = { viewModel.toggleCardLayoutMode() }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Schedule,
-                        title = "Clock Format",
+                        title = stringResource(R.string.clock_format),
                         value = uiState.clockFormat,
                         isFocused = false,
                         onClick = { viewModel.cycleClockFormat() }
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Movie,
-                        title = "Show Budget",
+                        title = stringResource(R.string.show_budget),
                         value = if (uiState.showBudget) "On" else "Off",
                         isFocused = false,
                         showDivider = false,
@@ -3057,7 +3056,7 @@ private fun AppUpdateModal(
                         }
                     }
             ) {
-            Text(tr("App Update"), style = ArflixTypography.sectionTitle, color = TextPrimary)
+            Text(stringResource(R.string.app_update), style = ArflixTypography.sectionTitle, color = TextPrimary)
             Spacer(modifier = Modifier.height(10.dp))
 
             val subtitle = when {
@@ -3292,7 +3291,7 @@ private fun SettingsSectionItem(
         )
         Spacer(modifier = Modifier.width(16.dp))
         Text(
-            text = tr(title),
+            text = title,
             style = ArflixTypography.body,
             color = textColor
         )
@@ -3345,7 +3344,7 @@ private fun GeneralSettings(
     Column {
         // ── Language & Subtitles ──
         Text(
-            text = tr("Language & Subtitles"),
+            text = stringResource(R.string.language_and_subtitles),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
             color = TextSecondary.copy(alpha = 0.5f),
             modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
@@ -3353,8 +3352,8 @@ private fun GeneralSettings(
 
         SettingsRow(
             icon = Icons.Default.Subtitles,
-            title = "App Language",
-            subtitle = "App text, titles, descriptions and metadata",
+            title = stringResource(R.string.app_language),
+            subtitle = stringResource(R.string.app_language_desc),
             value = TMDB_LANGUAGES.firstOrNull { it.first == contentLanguage }?.second ?: contentLanguage,
             isFocused = focusedIndex == 0,
             onClick = onContentLanguageClick,
@@ -3363,8 +3362,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Subtitles,
-            title = "Default Subtitle",
-            subtitle = "Auto-select subtitle language",
+            title = stringResource(R.string.default_subtitle),
+            subtitle = stringResource(R.string.subtitle_desc),
             value = defaultSubtitle,
             isFocused = focusedIndex == 1,
             onClick = onSubtitleClick,
@@ -3373,8 +3372,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.VolumeUp,
-            title = "Default Audio",
-            subtitle = "Preferred audio track",
+            title = stringResource(R.string.default_audio),
+            subtitle = stringResource(R.string.audio_desc),
             value = defaultAudioLanguage,
             isFocused = focusedIndex == 2,
             onClick = onAudioLanguageClick,
@@ -3383,8 +3382,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Subtitles,
-            title = "Subtitle Size",
-            subtitle = "Text size for subtitles",
+            title = stringResource(R.string.subtitle_size),
+            subtitle = stringResource(R.string.subtitle_size_desc),
             value = subtitleSize,
             isFocused = focusedIndex == 3,
             onClick = onSubtitleSizeClick,
@@ -3393,8 +3392,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Subtitles,
-            title = "Subtitle Color",
-            subtitle = "Text color for subtitles",
+            title = stringResource(R.string.subtitle_color),
+            subtitle = stringResource(R.string.subtitle_color_desc),
             value = subtitleColor,
             isFocused = focusedIndex == 4,
             onClick = onSubtitleColorClick,
@@ -3404,15 +3403,15 @@ private fun GeneralSettings(
         // ── Playback ──
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = tr("Playback"),
+            text = stringResource(R.string.playback),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
             color = TextSecondary.copy(alpha = 0.5f),
             modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
         )
 
         SettingsToggleRow(
-            title = "Auto-Play Next",
-            subtitle = "Start next episode automatically",
+            title = stringResource(R.string.auto_play_next_title),
+            subtitle = stringResource(R.string.auto_play_desc),
             isEnabled = autoPlayNext,
             isFocused = focusedIndex == 5,
             onToggle = onAutoPlayToggle,
@@ -3420,8 +3419,8 @@ private fun GeneralSettings(
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
-            title = "Autoplay",
-            subtitle = "Off opens the source picker on Play",
+            title = stringResource(R.string.autoplay),
+            subtitle = stringResource(R.string.autoplay_desc),
             isEnabled = autoPlaySingleSource,
             isFocused = focusedIndex == 6,
             onToggle = onAutoPlaySingleSourceToggle,
@@ -3430,8 +3429,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.HighQuality,
-            title = "Auto-Play Min Quality",
-            subtitle = "Min quality for auto-play",
+            title = stringResource(R.string.auto_play_min_quality),
+            subtitle = stringResource(R.string.auto_play_quality_desc),
             value = autoPlayMinQuality,
             isFocused = focusedIndex == 7,
             onClick = onAutoPlayMinQualityClick,
@@ -3439,8 +3438,8 @@ private fun GeneralSettings(
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
-            title = "Trailer Auto-Play",
-            subtitle = "Play trailers in hero banner",
+            title = stringResource(R.string.trailer_auto_play),
+            subtitle = stringResource(R.string.trailer_desc),
             isEnabled = trailerAutoPlay,
             isFocused = focusedIndex == 8,
             onToggle = onTrailerAutoPlayToggle,
@@ -3449,8 +3448,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Movie,
-            title = "Match Frame Rate",
-            subtitle = "Off, Seamless, or Always",
+            title = stringResource(R.string.frame_rate),
+            subtitle = stringResource(R.string.frame_rate_desc),
             value = frameRateMatchingMode,
             isFocused = focusedIndex == 9,
             onClick = onFrameRateMatchingClick,
@@ -3459,8 +3458,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.HighQuality,
-            title = "Quality Regex Filters",
-            subtitle = "Exclude quality tiers on this device",
+            title = stringResource(R.string.quality_filters),
+            subtitle = stringResource(R.string.quality_filters_desc),
             value = qualityFilterValue,
             isFocused = focusedIndex == 10,
             onClick = onQualityFiltersClick,
@@ -3470,7 +3469,7 @@ private fun GeneralSettings(
         // ── Interface ──
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = tr("Interface"),
+            text = stringResource(R.string.interface_label),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
             color = TextSecondary.copy(alpha = 0.5f),
             modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
@@ -3478,8 +3477,8 @@ private fun GeneralSettings(
 
         SettingsRow(
             icon = Icons.Default.Widgets,
-            title = "Card Layout",
-            subtitle = "Landscape or poster cards",
+            title = stringResource(R.string.card_layout),
+            subtitle = stringResource(R.string.card_layout_desc),
             value = cardLayoutMode,
             isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle,
@@ -3488,8 +3487,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Settings,
-            title = "UI Mode",
-            subtitle = "Force TV, Tablet, or Phone",
+            title = stringResource(R.string.ui_mode),
+            subtitle = stringResource(R.string.ui_mode_desc),
             value = when (deviceModeOverride) {
                 "tv" -> "TV"
                 "tablet" -> "Tablet"
@@ -3502,8 +3501,8 @@ private fun GeneralSettings(
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
-            title = "Skip Profile Selection",
-            subtitle = "Auto-load last used profile",
+            title = stringResource(R.string.skip_profile),
+            subtitle = stringResource(R.string.skip_profile_desc),
             isEnabled = skipProfileSelection,
             isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle,
@@ -3512,8 +3511,8 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Schedule,
-            title = "Clock Format",
-            subtitle = "Choose 12-hour or 24-hour time",
+            title = stringResource(R.string.clock_format),
+            subtitle = stringResource(R.string.clock_format_desc),
             value = if (clockFormat == "12h") "12-hour" else "24-hour",
             isFocused = focusedIndex == 14,
             onClick = onClockFormatClick,
@@ -3523,8 +3522,8 @@ private fun GeneralSettings(
         // Home hero controls — issue #72. The movie Budget line on the hero banner
         // makes the metadata row noisy on small screens and some users want to hide it.
         SettingsToggleRow(
-            title = "Show Budget on Home",
-            subtitle = "Display the movie budget on the home hero banner",
+            title = stringResource(R.string.show_budget),
+            subtitle = stringResource(R.string.show_budget_desc),
             isEnabled = showBudget,
             isFocused = focusedIndex == 15,
             onToggle = onShowBudgetToggle,
@@ -3534,7 +3533,7 @@ private fun GeneralSettings(
         // ── Network ──
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = tr("Network"),
+            text = stringResource(R.string.network),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
             color = TextSecondary.copy(alpha = 0.5f),
             modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
@@ -3542,8 +3541,8 @@ private fun GeneralSettings(
 
         SettingsRow(
             icon = Icons.Default.Language,
-            title = "DNS Provider",
-            subtitle = "Resolve API and stream requests",
+            title = stringResource(R.string.dns_provider),
+            subtitle = stringResource(R.string.dns_desc),
             value = dnsProvider,
             isFocused = focusedIndex == 16,
             onClick = onDnsProviderClick,
@@ -3551,8 +3550,8 @@ private fun GeneralSettings(
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
-            title = "Show Loading Stats",
-            subtitle = "Display stream resolution progress",
+            title = stringResource(R.string.show_loading_stats),
+            subtitle = stringResource(R.string.show_loading_stats_desc),
             isEnabled = showLoadingStats,
             isFocused = focusedIndex == 17,
             onToggle = onShowLoadingStatsToggle,
@@ -3562,7 +3561,7 @@ private fun GeneralSettings(
         // ── Audio ──
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = tr("Audio"),
+            text = stringResource(R.string.audio),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
             color = TextSecondary.copy(alpha = 0.5f),
             modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
@@ -3570,8 +3569,8 @@ private fun GeneralSettings(
 
         SettingsRow(
             icon = Icons.Default.VolumeUp,
-            title = "Volume Boost",
-            subtitle = "Amplify quiet sources (via system LoudnessEnhancer)",
+            title = stringResource(R.string.volume_boost),
+            subtitle = stringResource(R.string.volume_boost_desc),
             value = when (volumeBoostDb) {
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
@@ -3612,7 +3611,7 @@ private fun IptvSettings(
     Column {
         if (!isMobile) {
             Text(
-                text = tr("IPTV"),
+                text = stringResource(R.string.iptv),
                 style = ArflixTypography.sectionTitle,
                 color = TextPrimary,
                 modifier = Modifier.padding(bottom = 24.dp)
@@ -3623,7 +3622,7 @@ private fun IptvSettings(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${selectedIndices.size} ${tr("selected")}",
+                    text = "${selectedIndices.size} ${stringResource(R.string.selected)}",
                     style = ArflixTypography.sectionTitle,
                     color = TextPrimary
                 )
@@ -3642,7 +3641,7 @@ private fun IptvSettings(
                             .background(Color(0xFFDC2626), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = tr("Delete"), tint = Color.White, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.delete), tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                 }
@@ -3656,14 +3655,14 @@ private fun IptvSettings(
                         .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = tr("Close"), tint = Color.White, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = Color.White, modifier = Modifier.size(20.dp))
                 }
             }
         }
 
         SettingsRow(
             icon = Icons.Default.LiveTv,
-            title = "Add Playlist",
+            title = stringResource(R.string.add_playlist),
             subtitle = if (playlists.isEmpty()) "Add up to 3 M3U / Xtream IPTV lists with names" else "Create another IPTV list",
             value = if (playlists.size >= 3) "FULL" else "ADD",
             isFocused = focusedIndex == 0,
@@ -3818,7 +3817,7 @@ private fun IptvSettings(
         }
         SettingsRow(
             icon = Icons.Default.Link,
-            title = "Refresh IPTV Data",
+            title = stringResource(R.string.refresh_iptv),
             subtitle = refreshSubtitle,
             value = if (isLoading) "LOADING" else "REFRESH",
             isFocused = focusedIndex == playlists.size + 1,
@@ -3830,7 +3829,7 @@ private fun IptvSettings(
 
         SettingsRow(
             icon = Icons.Default.Delete,
-            title = "Delete IPTV Playlists",
+            title = stringResource(R.string.delete_iptv),
             subtitle = if (playlists.isEmpty()) "No playlists configured" else "Remove playlists, EPG and favorites",
             value = if (playlists.isEmpty()) "EMPTY" else "DELETE",
             isFocused = focusedIndex == playlists.size + 2,
@@ -3841,7 +3840,7 @@ private fun IptvSettings(
         if (isLoading && !progressText.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-            text = "${tr(progressText)} (${progressPercent.coerceIn(0, 100)}%)",
+            text = "$progressText (${progressPercent.coerceIn(0, 100)}%)",
                 style = ArflixTypography.caption,
                 color = TextSecondary
             )
@@ -3883,7 +3882,7 @@ private fun IptvSettings(
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Text(
-                    text = tr(statusMessage),
+                    text = statusMessage,
                     style = ArflixTypography.caption,
                     color = statusColor
                 )
@@ -3930,7 +3929,7 @@ private fun SettingsRow(
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
-                    text = tr(title),
+                    text = title,
                     style = ArflixTypography.cardTitle,
                     color = TextPrimary,
                     maxLines = 1,
@@ -3938,7 +3937,7 @@ private fun SettingsRow(
                 )
                 if (subtitle.isNotEmpty()) {
                     Text(
-                        text = tr(subtitle),
+                        text = subtitle,
                         style = ArflixTypography.caption,
                         color = TextSecondary,
                         maxLines = 2,
@@ -3949,7 +3948,7 @@ private fun SettingsRow(
         }
         
         Text(
-            text = trUpper(value),
+            text = value.uppercase(),
             style = ArflixTypography.label,
             color = Pink,
             maxLines = 1,
@@ -3987,14 +3986,14 @@ private fun SettingsToggleRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = tr(title),
+                text = title,
                 style = ArflixTypography.cardTitle,
                 color = TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = tr(subtitle),
+                text = subtitle,
                 style = ArflixTypography.caption,
                 color = TextSecondary,
                 maxLines = 2,
@@ -4045,7 +4044,7 @@ private fun CatalogsSettings(
     Column {
         if (!isMobile) {
             Text(
-                text = tr("Catalogs"),
+                text = stringResource(R.string.catalogs),
                 style = ArflixTypography.sectionTitle,
                 color = TextPrimary,
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -4056,7 +4055,7 @@ private fun CatalogsSettings(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${selectedIds.size} ${tr("selected")}",
+                    text = "${selectedIds.size} ${stringResource(R.string.selected)}",
                     style = ArflixTypography.sectionTitle,
                     color = TextPrimary
                 )
@@ -4076,7 +4075,7 @@ private fun CatalogsSettings(
                             .background(Color(0xFFDC2626), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = tr("Delete"), tint = Color.White, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.delete), tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                 }
@@ -4090,12 +4089,12 @@ private fun CatalogsSettings(
                         .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = tr("Close"), tint = Color.White, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = Color.White, modifier = Modifier.size(20.dp))
                 }
             }
         }
         Text(
-            text = tr("Trakt/MDBList URLs can be added manually. Addon catalogs appear automatically."),
+            text = stringResource(R.string.catalogs),
             style = ArflixTypography.caption,
             color = TextSecondary.copy(alpha = 0.65f),
             modifier = Modifier.padding(bottom = 20.dp)
@@ -4103,8 +4102,8 @@ private fun CatalogsSettings(
 
         SettingsRow(
             icon = Icons.Default.Add,
-            title = "Add Catalog",
-            subtitle = "Import a Trakt or MDBList catalog URL",
+            title = stringResource(R.string.add_catalog),
+            subtitle = stringResource(R.string.add_catalog_desc),
             value = "ADD",
             isFocused = focusedIndex == 0,
             onClick = onAddCatalog,
@@ -5393,7 +5392,7 @@ private fun AccountsSettings(
 ) {
     Column {
         Text(
-            text = tr("Linked Accounts"),
+            text = stringResource(R.string.accounts),
             style = ArflixTypography.sectionTitle,
             color = TextPrimary,
             modifier = Modifier.padding(bottom = 24.dp)
@@ -5435,7 +5434,7 @@ private fun AccountsSettings(
         Spacer(modifier = Modifier.height(16.dp))
 
         SettingsActionRow(
-            title = "Force Cloud Sync",
+            title = stringResource(R.string.force_cloud_sync),
             description = if (isForceCloudSyncing) {
                 "Syncing local and cloud state now"
             } else if (isCloudAuthenticated) {
@@ -5452,7 +5451,7 @@ private fun AccountsSettings(
         Spacer(modifier = Modifier.height(16.dp))
 
         SettingsActionRow(
-            title = "App Updates",
+            title = stringResource(R.string.app_update),
             description = when {
                 !isSelfUpdateSupported -> "This install is managed by the Play Store"
                 downloadedApkPath != null -> "Latest update downloaded and ready to install"
@@ -5504,14 +5503,14 @@ private fun AccountActionRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = tr(title),
+                text = title,
                 style = ArflixTypography.cardTitle,
                 color = TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = tr(description),
+                text = description,
                 style = ArflixTypography.caption,
                 color = TextSecondary,
                 maxLines = 2,
@@ -5536,7 +5535,7 @@ private fun AccountActionRow(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = trUpper(actionLabel),
+                text = actionLabel.uppercase(),
                 style = ArflixTypography.label,
                 color = if (isEnabled) Pink else TextSecondary
             )
@@ -5573,14 +5572,14 @@ private fun SettingsActionRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = tr(title),
+                text = title,
                 style = ArflixTypography.cardTitle,
                 color = TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = tr(description),
+                text = description,
                 style = ArflixTypography.caption,
                 color = TextSecondary,
                 maxLines = 2,
@@ -5605,7 +5604,7 @@ private fun SettingsActionRow(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = trUpper(actionLabel),
+                text = actionLabel.uppercase(),
                 style = ArflixTypography.label,
                 color = Pink
             )
@@ -5653,14 +5652,14 @@ private fun AccountRow(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = tr(name),
+                    text = name,
                     style = ArflixTypography.cardTitle,
                     color = TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = tr(description),
+                    text = description,
                     style = ArflixTypography.caption,
                     color = TextSecondary,
                     maxLines = 2,
@@ -5683,7 +5682,7 @@ private fun AccountRow(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = trUpper("CONNECTED"),
+                        text = stringResource(R.string.connected).uppercase(),
                         style = ArflixTypography.label,
                         color = SuccessGreen
                     )
@@ -5709,7 +5708,7 @@ private fun AccountRow(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = trUpper("CONNECT"),
+                        text = stringResource(R.string.connect).uppercase(),
                         style = ArflixTypography.label,
                         color = Pink
                     )
@@ -5741,7 +5740,7 @@ private fun AccountRow(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = tr("Enter code:"),
+                    text = stringResource(R.string.enter_code),
                     style = ArflixTypography.caption,
                     color = TextSecondary.copy(alpha = 0.9f)
                 )
@@ -5763,7 +5762,7 @@ private fun AccountRow(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = tr("Waiting for authorization... (Press OK to cancel)"),
+                text = stringResource(R.string.loading_label),
                 style = ArflixTypography.caption,
                 color = TextSecondary.copy(alpha = 0.7f)
             )
@@ -5891,7 +5890,7 @@ private fun InputModalLegacy(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
             Text(
-                text = tr(title),
+                text = title,
                 style = ArflixTypography.sectionTitle,
                 color = TextPrimary,
                 modifier = Modifier.padding(bottom = 24.dp)
@@ -6004,7 +6003,7 @@ private fun InputModalLegacy(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = tr("Cancel"),
+                        text = stringResource(R.string.cancel),
                         style = ArflixTypography.button,
                         color = if (isCancelFocused) TextPrimary else TextSecondary
                     )
@@ -6028,7 +6027,7 @@ private fun InputModalLegacy(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = tr("Confirm"),
+                        text = stringResource(R.string.confirm),
                         style = ArflixTypography.button,
                         color = Color.White
                     )
@@ -6227,7 +6226,7 @@ private fun InputModal(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = tr(title),
+                    text = title,
                     style = ArflixTypography.sectionTitle,
                     color = TextPrimary
                 )
@@ -6473,7 +6472,7 @@ private fun InputModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = tr("Cancel"),
+                            text = stringResource(R.string.cancel),
                             style = ArflixTypography.button,
                             color = if (isCancelFocused) Color.Black else Color.White
                         )
@@ -6501,7 +6500,7 @@ private fun InputModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = tr("Confirm"),
+                            text = stringResource(R.string.confirm),
                             style = ArflixTypography.button,
                             color = if (isConfirmFocused) Color.Black else Color.White
                         )
@@ -6589,7 +6588,7 @@ private fun SubtitlePickerModal(
                     }
             ) {
                 Text(
-                    text = tr(title),
+                    text = title,
                     style = ArflixTypography.sectionTitle,
                     color = TextPrimary
                 )
@@ -6621,7 +6620,7 @@ private fun SubtitlePickerModal(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = tr(option),
+                                text = option,
                                 style = ArflixTypography.body,
                                 color = if (isFocused) TextPrimary else TextSecondary,
                                 modifier = Modifier.weight(1f)
@@ -6754,7 +6753,7 @@ private fun UiModeWarningDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = tr("Confirm"),
+                            text = stringResource(R.string.confirm),
                             style = ArflixTypography.button,
                             color = Color.White
                         )
@@ -6778,7 +6777,7 @@ private fun UiModeWarningDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = tr("Cancel"),
+                            text = stringResource(R.string.cancel),
                             style = ArflixTypography.button,
                             color = if (isCancelFocused) TextPrimary else TextSecondary
                         )

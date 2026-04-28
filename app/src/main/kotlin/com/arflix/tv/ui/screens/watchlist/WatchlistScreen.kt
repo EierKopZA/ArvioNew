@@ -72,6 +72,8 @@ import com.arflix.tv.util.tr
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 /**
  * Watchlist screen - matches webapp design with grid layout
@@ -320,13 +322,13 @@ fun WatchlistScreen(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = tr("Your watchlist is empty"),
+                                    text = stringResource(R.string.empty_watchlist),
                                     style = ArflixTypography.body,
                                     color = Color.White.copy(alpha = 0.5f)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = tr("Add movies and shows to watch later"),
+                                    text = stringResource(R.string.add_later),
                                     style = ArflixTypography.caption,
                                     color = Color.White.copy(alpha = 0.3f)
                                 )

@@ -65,6 +65,8 @@ import com.arflix.tv.ui.theme.BackgroundGradientCenter
 import com.arflix.tv.ui.theme.BackgroundGradientEnd
 import com.arflix.tv.ui.theme.BackgroundGradientStart
 import com.arflix.tv.util.LocalDeviceType
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -171,7 +173,7 @@ fun ProfileSelectionScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = if (uiState.isManageMode) "Manage Profiles" else "Who's watching?",
+                text = if (uiState.isManageMode) stringResource(R.string.manage_profiles) else stringResource(R.string.whos_watching),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Normal,
                 color = Color.White.copy(alpha = 0.8f)
@@ -294,7 +296,7 @@ fun ProfileSelectionScreen(
             if (uiState.isSwitchingProfile) {
                 Spacer(modifier = Modifier.height(18.dp))
                 Text(
-                    text = "Loading profile...",
+                    text = stringResource(R.string.loading_profile),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.White.copy(alpha = 0.72f)
@@ -346,7 +348,7 @@ fun ProfileSelectionScreen(
         if (uiState.showPinDialog) {
             if (uiState.pinDialogMode == "verify") {
                 PinEntryDialog(
-                    title = "Enter PIN to unlock",
+                    title = stringResource(R.string.enter_pin_to_unlock),
                     onPinConfirmed = { pin -> viewModel.verifyPinAndSelectProfile(pin) },
                     onDismiss = { viewModel.hidePinDialog() },
                     isSetup = false,
@@ -354,7 +356,7 @@ fun ProfileSelectionScreen(
                 )
             } else if (uiState.pinDialogMode == "setup") {
                 PinEntryDialog(
-                    title = "Set Profile PIN",
+                    title = stringResource(R.string.set_profile_pin),
                     onPinConfirmed = { pin -> viewModel.setupProfilePin(pin) },
                     onDismiss = { viewModel.hidePinDialog() },
                     isSetup = true
@@ -463,7 +465,7 @@ private fun ProfileAvatar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit",
+                        contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(32.dp)
                     )
@@ -505,7 +507,7 @@ private fun AddProfileButton(
     ) {
         val addContent: @Composable () -> Unit = {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add Profile", tint = Color.White, modifier = Modifier.size(48.dp))
+                Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
             }
         }
         if (isTouchDevice) {
@@ -546,7 +548,7 @@ private fun AddProfileButton(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Add Profile",
+            text = stringResource(R.string.add_profile),
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
             color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.7f),
@@ -588,7 +590,7 @@ private fun ManageProfilesButton(
         )
     ) {
         Text(
-            text = if (isManageMode) "Done" else "Manage Profiles",
+            text = if (isManageMode) stringResource(R.string.done) else stringResource(R.string.manage_profiles),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             color = Color.White,
@@ -630,7 +632,7 @@ private fun CloudConnectButton(
                 modifier = Modifier.size(18.dp)
             )
             Text(
-                text = "Connect to ARVIO Cloud",
+                text = stringResource(R.string.connect_to_cloud),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.White.copy(alpha = 0.85f)
@@ -668,7 +670,7 @@ private fun CloudConnectButton(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Connect to ARVIO Cloud",
+                    text = stringResource(R.string.connect_to_cloud),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.7f)

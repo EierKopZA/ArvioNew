@@ -47,19 +47,21 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.theme.AnimationConstants
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 import com.arflix.tv.ui.theme.TextSecondary
-import com.arflix.tv.util.tr
 
 /**
  * Premium navigation sidebar with smooth animations
  * Ultra slim icon-only bar with animated focus states
  */
-enum class SidebarItem(val icon: ImageVector, val label: String) {
-    SEARCH(Icons.Outlined.Search, "Search"),
-    HOME(Icons.Outlined.Home, "Home"),
-    WATCHLIST(Icons.Outlined.Bookmark, "Watchlist"),
-    TV(Icons.Outlined.LiveTv, "TV"),
-    SETTINGS(Icons.Outlined.Settings, "Settings")
+enum class SidebarItem(val icon: ImageVector, @StringRes val labelRes: Int) {
+    SEARCH(Icons.Outlined.Search, R.string.search),
+    HOME(Icons.Outlined.Home, R.string.home),
+    WATCHLIST(Icons.Outlined.Bookmark, R.string.watchlist),
+    TV(Icons.Outlined.LiveTv, R.string.tv_shows),
+    SETTINGS(Icons.Outlined.Settings, R.string.settings)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -266,7 +268,7 @@ private fun SidebarIcon(
         ),
         label = "sidebar_indicator_alpha"
     )
-    val label = tr(item.label)
+    val label = stringResource(item.labelRes)
 
     Box(
         modifier = Modifier

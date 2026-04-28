@@ -53,8 +53,9 @@ import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
-import com.arflix.tv.util.tr
 import kotlinx.coroutines.delay
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 /**
  * Next episode overlay shown at the end of an episode
@@ -158,7 +159,7 @@ fun NextEpisodeOverlay(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = tr("UP NEXT"),
+                            text = stringResource(R.string.next).uppercase(),
                             style = ArflixTypography.label,
                             color = Pink
                         )
@@ -287,7 +288,7 @@ fun NextEpisodeOverlay(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = tr("PLAY NOW"),
+                                    text = stringResource(R.string.play).uppercase(),
                                     style = ArflixTypography.button,
                                     color = if (focusedButton == 0) Color.Black else TextSecondary
                                 )
@@ -311,7 +312,7 @@ fun NextEpisodeOverlay(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = tr("Cancel"),
+                                contentDescription = stringResource(R.string.cancel),
                                 tint = if (focusedButton == 1) Color.Black else TextSecondary,
                                 modifier = Modifier.size(24.dp)
                             )

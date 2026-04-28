@@ -816,6 +816,9 @@ class SettingsViewModel @Inject constructor(
                 prefs[contentLanguageKey()] = lang
                 prefs[LAST_APP_LANGUAGE_KEY] = lang
             }
+            // Mirror to SharedPreferences so attachBaseContext can read it synchronously on next launch
+            context.getSharedPreferences("app_locale", android.content.Context.MODE_PRIVATE)
+                .edit().putString("locale_tag", lang).apply()
             mediaRepository.contentLanguage = if (lang == "en-US") null else lang
             _uiState.value = _uiState.value.copy(contentLanguage = lang)
             syncLocalStateToCloud(silent = true)

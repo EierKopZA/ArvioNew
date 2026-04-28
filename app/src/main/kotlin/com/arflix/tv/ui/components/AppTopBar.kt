@@ -42,8 +42,9 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 import com.arflix.tv.util.settingsDataStore
-import com.arflix.tv.util.tr
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -221,7 +222,7 @@ private fun TopBarNavChip(
         animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
         label = "topbar_scale"
     )
-    val label = tr(item.label)
+    val label = stringResource(item.labelRes)
 
     Row(
         modifier = Modifier
@@ -298,7 +299,7 @@ private fun TopBarSettingsGear(
     ) {
         Icon(
             imageVector = Icons.Outlined.Settings,
-            contentDescription = tr("Settings"),
+            contentDescription = stringResource(R.string.settings),
             tint = iconColor,
             modifier = Modifier.size(20.dp)
         )

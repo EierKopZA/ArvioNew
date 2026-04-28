@@ -1,5 +1,7 @@
 package com.arflix.tv
 
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.ViewTreeObserver
 import android.view.WindowManager
@@ -163,6 +165,20 @@ class MainActivity : ComponentActivity() {
     // StartupViewModel for parallel loading during splash
     private val startupViewModel: StartupViewModel by viewModels()
 
+    override fun attachBaseContext(newBase: Context) {
+        val tag = newBase.getSharedPreferences("app_locale", Context.MODE_PRIVATE)
+            .getString("locale_tag", null)
+        if (!tag.isNullOrEmpty()) {
+            val locale = java.util.Locale.forLanguageTag(tag)
+            java.util.Locale.setDefault(locale)
+            val config = Configuration(newBase.resources.configuration)
+            config.setLocale(locale)
+            super.attachBaseContext(newBase.createConfigurationContext(config))
+        } else {
+            super.attachBaseContext(newBase)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Install splash screen BEFORE super.onCreate()
         // Don't use setKeepOnScreenCondition - it causes black screen on some TV devices
@@ -254,11 +270,31 @@ class MainActivity : ComponentActivity() {
             // If no touchscreen, force TV mode regardless of override setting
             // (prevents tablet/phone UI on devices with only D-pad input)
             val effectiveDeviceType = if (!hasTouchScreen && deviceType != DeviceType.TV) DeviceType.TV else deviceType
+            // Wrap the Activity as a ContextWrapper that only overrides getResources() with
+            // localized resources. Hilt traverses ContextWrapper chains to find the Activity,
+            // so hiltViewModel() still works correctly.
+            val localizedContext = remember(appLanguage) {
+                val locale = com.arflix.tv.util.appLocale(appLanguage)
+                java.util.Locale.setDefault(locale)
+                val config = Configuration(this@MainActivity.resources.configuration)
+                config.setLocale(locale)
+                val localizedRes = this@MainActivity.createConfigurationContext(config).resources
+                object : android.content.ContextWrapper(this@MainActivity) {
+                    override fun getResources() = localizedRes
+                }
+            }
+            val isRtl = remember(appLanguage) {
+                val lang = java.util.Locale.forLanguageTag(appLanguage.replace('_', '-')).language
+                lang in listOf("ar", "he", "fa", "ur")
+            }
             CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalContext provides localizedContext,
                 LocalAppLanguage provides appLanguage,
                 LocalDeviceType provides effectiveDeviceType,
                 LocalHasTouchScreen provides hasTouchScreen,
-                androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                androidx.compose.ui.platform.LocalLayoutDirection provides
+                    if (isRtl) androidx.compose.ui.unit.LayoutDirection.Rtl
+                    else androidx.compose.ui.unit.LayoutDirection.Ltr
             ) {
                 ArflixTvTheme {
                     val startupState by startupViewModel.state.collectAsStateWithLifecycle()

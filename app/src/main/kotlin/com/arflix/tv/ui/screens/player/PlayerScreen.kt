@@ -137,7 +137,6 @@ import com.arflix.tv.ui.components.WaveLoadingDots
 import androidx.compose.ui.text.style.TextOverflow
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.settingsDataStore
-import com.arflix.tv.util.tr
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.PurpleDark
@@ -169,6 +168,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 /**
  * Netflix-style Player UI for Android TV
@@ -2038,7 +2039,7 @@ fun PlayerScreen(
                             Text(currentTime.value, style = ArflixTypography.body.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium), color = TextSecondary, maxLines = 1)
                         }
                         if (endsAtTime.value.isNotBlank()) {
-                            Text("${tr("Ends at")} ${endsAtTime.value}", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = TextSecondary.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+                            Text("${stringResource(R.string.ends_at)} ${endsAtTime.value}", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = TextSecondary.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 2.dp))
                         }
                     }
                 }
@@ -2120,7 +2121,7 @@ fun PlayerScreen(
                         }
 
                         // Subtitles
-                        PlayerIconButton(icon = Icons.Default.ClosedCaption, contentDescription = tr("Subtitles & Audio"),
+                        PlayerIconButton(icon = Icons.Default.ClosedCaption, contentDescription = "${stringResource(R.string.subtitles)} / ${stringResource(R.string.audio)}",
                             focusRequester = subtitleButtonFocusRequester, size = smallBtn, iconSize = smallIcon,
                             onFocusChanged = { if (it) focusedButton = 1 },
                             onClick = { showSubtitleMenu = true; subtitleMenuIndex = 0 },
@@ -2131,7 +2132,7 @@ fun PlayerScreen(
                         Spacer(modifier = Modifier.width(gap))
 
                         // Sources
-                        PlayerIconButton(icon = Icons.Default.Folder, contentDescription = tr("Sources"),
+                        PlayerIconButton(icon = Icons.Default.Folder, contentDescription = stringResource(R.string.sources),
                             focusRequester = sourceButtonFocusRequester, size = smallBtn, iconSize = smallIcon,
                             onFocusChanged = {},
                             onClick = { showSourceMenu = true; showControls = true },
@@ -2195,7 +2196,7 @@ fun PlayerScreen(
 
                         if (mediaType == MediaType.TV) {
                             Spacer(modifier = Modifier.width(gap))
-                            PlayerIconButton(icon = Icons.Default.SkipNext, contentDescription = tr("Next Episode"),
+                            PlayerIconButton(icon = Icons.Default.SkipNext, contentDescription = stringResource(R.string.next_episode),
                                 focusRequester = nextEpisodeButtonFocusRequester, size = smallBtn, iconSize = smallIcon,
                                 onFocusChanged = {},
                                 onClick = {
@@ -2627,7 +2628,7 @@ fun PlayerScreen(
                     if (isSetup) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = tr("ARVIO uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played."),
+                            text = stringResource(R.string.no_results),
                             style = ArflixTypography.caption,
                             color = TextSecondary.copy(alpha = 0.7f),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -2640,7 +2641,7 @@ fun PlayerScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         if (!isSetup) {
                             ErrorButton(
-                                text = tr("TRY AGAIN"),
+                                text = stringResource(R.string.retry).uppercase(),
                                 icon = Icons.Default.Refresh,
                                 isFocused = errorModalFocusIndex == 0,
                                 isPrimary = true,
@@ -2648,7 +2649,7 @@ fun PlayerScreen(
                             )
                         }
                         ErrorButton(
-                            text = tr("GO BACK"),
+                            text = stringResource(R.string.back).uppercase(),
                             isFocused = if (isSetup) errorModalFocusIndex == 0 else errorModalFocusIndex == 1,
                             isPrimary = isSetup,
                             onClick = onBack
@@ -3121,12 +3122,12 @@ private fun SubtitleMenu(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TabButton(
-                        text = tr("Subtitles"),
+                        text = stringResource(R.string.subtitles),
                         isSelected = activeTab == 0,
                         onClick = { onTabChanged(0) }
                     )
                     TabButton(
-                        text = tr("Audio"),
+                        text = stringResource(R.string.audio),
                         isSelected = activeTab == 1,
                         onClick = { onTabChanged(1) }
                     )
@@ -3179,7 +3180,7 @@ private fun SubtitleMenu(
                             if (audioTracks.isEmpty()) {
                                 item {
                                     Text(
-                                        text = tr("No audio tracks available"),
+                                        text = stringResource(R.string.no_audio_tracks),
                                         style = ArflixTypography.body,
                                         color = TextSecondary,
                                         modifier = Modifier.padding(16.dp)
@@ -3223,7 +3224,7 @@ private fun SubtitleMenu(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = tr("Switch tabs • Navigate • BACK Close"),
+                        text = "${stringResource(R.string.subtitles)} • ${stringResource(R.string.back)} • ${stringResource(R.string.close)}",
                         style = ArflixTypography.caption,
                         color = TextSecondary.copy(alpha = 0.5f)
                     )
@@ -3286,7 +3287,7 @@ private fun SubtitleMenu(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = tr("Close"),
+                            contentDescription = stringResource(R.string.close),
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
@@ -3398,7 +3399,7 @@ private fun SubtitleMenu(
                         if (audioTracks.isEmpty()) {
                             item {
                                 Text(
-                                    text = tr("No audio tracks available"),
+                                    text = stringResource(R.string.no_audio_tracks),
                                     style = ArflixTypography.body.copy(fontSize = 14.sp),
                                     color = TextSecondary,
                                     modifier = Modifier.padding(16.dp)
@@ -3517,7 +3518,7 @@ private fun TrackMenuItem(
         if (isSelected) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = tr("Selected"),
+                contentDescription = stringResource(R.string.selected),
                 tint = if (isFocused) Color.Black else Color.White,
                 modifier = Modifier.size(18.dp)
             )
@@ -3567,7 +3568,7 @@ private fun MobileTrackItem(
         if (isSelected) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = tr("Selected"),
+                contentDescription = stringResource(R.string.selected),
                 tint = Color(0xFF4CAF50), // Green checkmark
                 modifier = Modifier
                     .padding(start = 12.dp)

@@ -39,28 +39,30 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.arflix.tv.R
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
-import com.arflix.tv.util.tr
 
 data class BottomBarItem(
-    val label: String,
+    @StringRes val labelRes: Int,
     val icon: ImageVector,
     val route: String
 )
 
 val bottomBarItems = listOf(
-    BottomBarItem("Home", Icons.Default.Home, "home"),
-    BottomBarItem("Search", Icons.Default.Search, "search"),
-    BottomBarItem("Watchlist", Icons.Default.Bookmark, "watchlist"),
-    BottomBarItem("TV", Icons.Default.LiveTv, "tv"),
-    BottomBarItem("Settings", Icons.Default.Settings, "settings")
+    BottomBarItem(R.string.home, Icons.Default.Home, "home"),
+    BottomBarItem(R.string.search, Icons.Default.Search, "search"),
+    BottomBarItem(R.string.watchlist, Icons.Default.Bookmark, "watchlist"),
+    BottomBarItem(R.string.tv_shows, Icons.Default.LiveTv, "tv"),
+    BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -89,7 +91,7 @@ fun AppBottomBar(
             bottomBarItems.forEach { item ->
                 val isSelected = currentRoute?.contains(item.route, ignoreCase = true) == true
                 var isFocused by remember { mutableStateOf(false) }
-                val label = tr(item.label)
+                val label = stringResource(item.labelRes)
 
                 Column(
                     modifier = Modifier

@@ -61,7 +61,9 @@ import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import com.arflix.tv.util.LocalDeviceType
-import com.arflix.tv.util.tr
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.arflix.tv.R
 
 /**
  * Context menu for media cards on home screen
@@ -89,29 +91,29 @@ fun MediaContextMenu(
     val menuItems = buildList {
         add(MenuItem(
             icon = Icons.Default.PlayArrow,
-            label = "Play",
+            labelRes = R.string.play,
             action = onPlay
         ))
         add(MenuItem(
             icon = Icons.Default.Info,
-            label = "View Details",
+            labelRes = R.string.details,
             action = onViewDetails
         ))
         add(MenuItem(
             icon = if (isInWatchlist) Icons.Default.Remove else Icons.Default.Add,
-            label = if (isInWatchlist) "Remove from Watchlist" else "Add to Watchlist",
+            labelRes = if (isInWatchlist) R.string.remove_from_watchlist else R.string.add_to_watchlist,
             action = onToggleWatchlist
         ))
         add(MenuItem(
             icon = if (isWatched) Icons.Default.Visibility else Icons.Default.Check,
-            label = if (isWatched) "Mark as Unwatched" else "Mark as Watched",
+            labelRes = if (isWatched) R.string.unwatched else R.string.watched,
             action = onToggleWatched
         ))
         // Add "Remove from Continue Watching" only when applicable
         if (isContinueWatching && onRemoveFromContinueWatching != null) {
             add(MenuItem(
                 icon = Icons.Default.Close,
-                label = "Remove from Continue Watching",
+                labelRes = R.string.delete,
                 action = onRemoveFromContinueWatching
             ))
         }
@@ -193,7 +195,7 @@ fun MediaContextMenu(
                         menuItems.forEachIndexed { index, item ->
                             ContextMenuItem(
                                 icon = item.icon,
-                                label = item.label,
+                                label = stringResource(item.labelRes),
                                 isFocused = index == focusedIndex,
                                 onClick = {
                                     item.action()
@@ -207,7 +209,7 @@ fun MediaContextMenu(
 
                     // Hint
                     Text(
-                        text = tr("Press BACK to close"),
+                        text = stringResource(R.string.press_back_to_close),
                         style = ArflixTypography.caption,
                         color = TextSecondary.copy(alpha = 0.5f)
                     )
@@ -310,7 +312,7 @@ fun MediaContextMenu(
                                     modifier = Modifier.size(22.dp)
                                 )
                                 Text(
-                                    text = tr(item.label),
+                                    text = stringResource(item.labelRes),
                                     style = ArflixTypography.body,
                                     color = TextPrimary
                                 )
@@ -366,7 +368,7 @@ private fun ContextMenuItem(
                 modifier = Modifier.size(22.dp)
             )
             Text(
-                text = tr(label),
+                text = label,
                 style = ArflixTypography.body,
                 color = if (isFocused) Color.Black else TextPrimary
             )
@@ -376,6 +378,6 @@ private fun ContextMenuItem(
 
 private data class MenuItem(
     val icon: ImageVector,
-    val label: String,
+    @StringRes val labelRes: Int,
     val action: () -> Unit
 )

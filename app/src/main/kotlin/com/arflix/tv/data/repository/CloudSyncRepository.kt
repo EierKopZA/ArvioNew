@@ -514,6 +514,8 @@ class CloudSyncRepository @Inject constructor(
                         prefs[contentLanguageKeyFor(profileId)] = state.contentLanguage
                         if (profileId == activeProfileId) {
                             prefs[LAST_APP_LANGUAGE_KEY] = state.contentLanguage
+                            context.getSharedPreferences("app_locale", Context.MODE_PRIVATE)
+                                .edit().putString("locale_tag", state.contentLanguage).apply()
                         }
 
                         prefs[trailerAutoPlayKeyFor(profileId)] = state.trailerAutoPlay
