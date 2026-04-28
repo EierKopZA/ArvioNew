@@ -48,6 +48,7 @@ import com.arflix.tv.updater.AppUpdate
 import com.arflix.tv.updater.AppUpdateRepository
 import com.arflix.tv.updater.UpdatePreferences
 import com.arflix.tv.updater.VersionUtils
+import com.arflix.tv.util.LAST_APP_LANGUAGE_KEY
 import com.arflix.tv.util.settingsDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -813,6 +814,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { prefs ->
                 prefs[contentLanguageKey()] = lang
+                prefs[LAST_APP_LANGUAGE_KEY] = lang
             }
             mediaRepository.contentLanguage = if (lang == "en-US") null else lang
             _uiState.value = _uiState.value.copy(contentLanguage = lang)
@@ -1818,13 +1820,14 @@ class SettingsViewModel @Inject constructor(
                             }
 
                             clearCloudAuthSession(cancelPolling = false)
-                            pendingProfileSwitchAfterCloudLogin = true
+                            pendingProfileSwitchAfterCloudLogin = false
                             _uiState.value = _uiState.value.copy(
                                 isCloudAuthWorking = false,
                                 showCloudPairDialog = false,
                                 showCloudEmailPasswordDialog = false,
                                 cloudUserCode = null,
                                 cloudVerificationUrl = null,
+                                shouldSwitchProfile = true,
                                 toastMessage = when (restoreResult) {
                                     CloudRestoreResult.RESTORED -> "Signed in and restored from cloud"
                                     CloudRestoreResult.NO_BACKUP -> "Signed in successfully"

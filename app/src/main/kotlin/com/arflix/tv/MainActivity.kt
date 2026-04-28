@@ -66,6 +66,7 @@ import com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalHasTouchScreen
 import com.arflix.tv.util.LocalAppLanguage
+import com.arflix.tv.util.LAST_APP_LANGUAGE_KEY
 import com.arflix.tv.util.detectDeviceType
 import com.arflix.tv.util.deviceHasTouchScreen
 import com.arflix.tv.util.settingsDataStore
@@ -92,6 +93,7 @@ import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRequest
+import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.ProfileRepository
 import com.arflix.tv.data.repository.TraktRepository
@@ -143,6 +145,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var launcherContinueWatchingRepository: Lazy<LauncherContinueWatchingRepository>
+
+    @Inject
+    lateinit var mediaRepository: Lazy<MediaRepository>
 
     // Prefetch IPTV early so the TV screen opens without a loading stall.
     // IptvRepository is @Singleton; touching it at activity start warms the
@@ -227,10 +232,18 @@ class MainActivity : ComponentActivity() {
             }.collectAsStateWithLifecycle(initialValue = null)
             val appLanguage by remember(activeProfileId) {
                 this@MainActivity.settingsDataStore.data.map { prefs ->
-                    val profileId = activeProfileId ?: "default"
-                    prefs[stringPreferencesKey("profile_${profileId}_content_language")] ?: "en-US"
+                    val fallbackLanguage = prefs[LAST_APP_LANGUAGE_KEY] ?: "en-US"
+                    val profileId = activeProfileId
+                    if (profileId.isNullOrBlank()) {
+                        fallbackLanguage
+                    } else {
+                        prefs[stringPreferencesKey("profile_${profileId}_content_language")] ?: fallbackLanguage
+                    }
                 }
             }.collectAsStateWithLifecycle(initialValue = "en-US")
+            LaunchedEffect(appLanguage) {
+                mediaRepository.get().contentLanguage = if (appLanguage == "en-US") null else appLanguage
+            }
             val deviceType = when (deviceModeOverride) {
                 "tv" -> DeviceType.TV
                 "tablet" -> DeviceType.TABLET

@@ -8,6 +8,7 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.ContinueWatchingItem
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
 import com.arflix.tv.ui.components.normalizeCardLayoutMode
+import com.arflix.tv.util.LAST_APP_LANGUAGE_KEY
 import com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY
 import com.arflix.tv.util.settingsDataStore
 import com.google.gson.Gson
@@ -511,6 +512,9 @@ class CloudSyncRepository @Inject constructor(
                         }
                         prefs[defaultAudioLanguageKeyFor(profileId)] = state.defaultAudioLanguage
                         prefs[contentLanguageKeyFor(profileId)] = state.contentLanguage
+                        if (profileId == activeProfileId) {
+                            prefs[LAST_APP_LANGUAGE_KEY] = state.contentLanguage
+                        }
 
                         prefs[trailerAutoPlayKeyFor(profileId)] = state.trailerAutoPlay
                         prefs[clockFormatKeyFor(profileId)] = state.clockFormat

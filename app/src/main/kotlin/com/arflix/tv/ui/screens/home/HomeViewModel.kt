@@ -34,6 +34,7 @@ import com.arflix.tv.data.repository.WatchHistoryRepository
 import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.util.Constants
 import com.arflix.tv.util.DeviceType
+import com.arflix.tv.util.LAST_APP_LANGUAGE_KEY
 import com.arflix.tv.util.detectDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -631,7 +632,19 @@ class HomeViewModel @Inject constructor(
         val profileId = profileManager.getProfileIdSync()
             .ifBlank { "default" }
             .replace(Regex("[^A-Za-z0-9_.-]"), "_")
-        return java.io.File(context.cacheDir, "home_categories_cache_$profileId.json")
+        val language = (mediaRepository.contentLanguage ?: "en-US")
+            .replace(Regex("[^A-Za-z0-9_.-]"), "_")
+        return java.io.File(context.cacheDir, "home_categories_cache_${profileId}_$language.json")
+    }
+
+    private suspend fun applyContentLanguageFromPrefs(): String {
+        val prefs = context.settingsDataStore.data.first()
+        val profileId = profileManager.getProfileId()
+        val fallbackLanguage = prefs[LAST_APP_LANGUAGE_KEY] ?: "en-US"
+        val language = prefs[profileManager.profileStringKeyFor(profileId, "content_language")]
+            ?: fallbackLanguage
+        mediaRepository.contentLanguage = if (language == "en-US") null else language
+        return language
     }
 
     private fun persistCategoriesCache(categories: List<Category>) {
@@ -787,6 +800,7 @@ class HomeViewModel @Inject constructor(
 
     private fun scheduleInitialHomeLoad() {
         viewModelScope.launch {
+            applyContentLanguageFromPrefs()
             delay(if (isLowRamDevice) 1_000L else 800L)
             if (
                 usedPreloadedData ||
@@ -1105,6 +1119,7 @@ class HomeViewModel @Inject constructor(
         // replaces the cached data when it arrives.
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                applyContentLanguageFromPrefs()
                 val cachedCategories = loadCategoriesCache()
                 if (cachedCategories.isNotEmpty() && _uiState.value.categories.isEmpty()) {
                     val heroItem = chooseInitialHero(cachedCategories)
@@ -1467,6 +1482,7 @@ class HomeViewModel @Inject constructor(
                 delay(50) // Minimal delay for LaunchedEffect to potentially set preloaded data
             }
             if (requestId != loadHomeRequestId) return@loadHome
+            applyContentLanguageFromPrefs()
 
             try {
                 if (_uiState.value.categories.isEmpty()) {

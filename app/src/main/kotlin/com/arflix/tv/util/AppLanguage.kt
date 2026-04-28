@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.os.LocaleList
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import java.util.Locale
 
 val LocalAppLanguage = staticCompositionLocalOf { "en-US" }
+val LAST_APP_LANGUAGE_KEY = stringPreferencesKey("last_app_language")
 
 fun appLocale(languageTag: String): Locale {
     val normalized = languageTag.replace('_', '-')
