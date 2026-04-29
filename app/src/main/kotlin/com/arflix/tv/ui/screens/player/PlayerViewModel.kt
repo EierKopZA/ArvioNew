@@ -56,6 +56,8 @@ data class PlayerUiState(
     val subtitleSelectionNonce: Int = 0,
     val savedPosition: Long = 0,
     val preferredAudioLanguage: String = "en",
+    val preferredSubtitleLang: String = "",
+    val secondarySubtitleLang: String = "",
     val frameRateMatchingMode: String = "Off",
     val subtitleSize: String = "Medium",
     val subtitleColor: String = "White",
@@ -139,6 +141,8 @@ class PlayerViewModel @Inject constructor(
     private fun defaultSubtitleKey() = profileManager.profileStringKey("default_subtitle")
     private fun defaultAudioLanguageKey() = profileManager.profileStringKey("default_audio_language")
     private fun subtitleUsageKey() = profileManager.profileStringKey("subtitle_usage_v1")
+    private fun filterSubtitlesByLanguageKey() = profileManager.profileBooleanKey("filter_subtitles_by_lang")
+    private fun secondarySubtitleKey() = profileManager.profileStringKey("secondary_subtitle")
     private fun frameRateMatchingModeKey() = profileManager.profileStringKey("frame_rate_matching_mode")
     private fun autoPlayNextKey() = profileManager.profileBooleanKey("auto_play_next")
     private fun showLoadingStatsKey() = profileManager.profileBooleanKey("show_loading_stats")
@@ -194,17 +198,23 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             val preferredAudioLanguage = resolvePreferredAudioLanguage()
             val frameRateMatchingMode = resolveFrameRateMatchingMode()
-            val subSize = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_size")] ?: "Medium"
-            val subColor = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_color")] ?: "White"
-            val autoPlayNext = context.settingsDataStore.data.first()[autoPlayNextKey()] ?: true
-            val showLoadingStats = context.settingsDataStore.data.first()[showLoadingStatsKey()] ?: true
-            val volumeBoostDb = context.settingsDataStore.data.first()[
-                profileManager.profileStringKey("volume_boost_db")
-            ]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
+            val prefs = context.settingsDataStore.data.first()
+            val subSize = prefs[profileManager.profileStringKey("subtitle_size")] ?: "Medium"
+            val subColor = prefs[profileManager.profileStringKey("subtitle_color")] ?: "White"
+            val autoPlayNext = prefs[autoPlayNextKey()] ?: true
+            val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
+            val volumeBoostDb = prefs[profileManager.profileStringKey("volume_boost_db")]
+                ?.toIntOrNull()?.coerceIn(0, 15) ?: 0
+            val preferredSub = prefs[defaultSubtitleKey()]?.trim().orEmpty()
+                .let { if (isSubtitleDisabledPreference(it)) "" else it }
+            val secondarySub = prefs[secondarySubtitleKey()]?.trim().orEmpty()
+                .let { if (isSubtitleDisabledPreference(it)) "" else it }
             _uiState.value = PlayerUiState(
                 isLoading = true,
                 isLoadingStreams = true,
                 preferredAudioLanguage = preferredAudioLanguage,
+                preferredSubtitleLang = preferredSub,
+                secondarySubtitleLang = secondarySub,
                 frameRateMatchingMode = frameRateMatchingMode,
                 subtitleSize = subSize,
                 subtitleColor = subColor,
@@ -290,9 +300,11 @@ class PlayerViewModel @Inject constructor(
                             )
                         }.getOrDefault(emptyList())
 
-                        val mergedSubs = (_uiState.value.subtitles + fetchedSubs)
-                            .filter { it.url.isNotBlank() }
-                            .distinctBy { "${it.id}|${it.url}" }
+                        val mergedSubs = filterSubsByPreferredLanguage(
+                            (_uiState.value.subtitles + fetchedSubs)
+                                .filter { it.url.isNotBlank() }
+                                .distinctBy { "${it.id}|${it.url}" }
+                        )
 
                         _uiState.value = _uiState.value.copy(
                             subtitles = mergedSubs,
@@ -512,9 +524,11 @@ class PlayerViewModel @Inject constructor(
                         )
                     }.getOrDefault(emptyList())
 
-                    val mergedSubs = (_uiState.value.subtitles + fetchedSubs)
-                        .filter { it.url.isNotBlank() }
-                        .distinctBy { "${it.id}|${it.url}" }
+                    val mergedSubs = filterSubsByPreferredLanguage(
+                        (_uiState.value.subtitles + fetchedSubs)
+                            .filter { it.url.isNotBlank() }
+                            .distinctBy { "${it.id}|${it.url}" }
+                    )
 
                     val preferredSub = getDefaultSubtitle()
                     _uiState.value = _uiState.value.copy(
@@ -668,6 +682,48 @@ class PlayerViewModel @Inject constructor(
         } catch (_: Exception) {
             "Off"
         }
+    }
+
+    // Returns subs filtered to the preferred language(s) when the setting is enabled.
+    // Tries primary language first; if nothing matches, tries secondary; falls back to full list.
+    private suspend fun filterSubsByPreferredLanguage(subs: List<Subtitle>): List<Subtitle> {
+        val prefs = runCatching { context.settingsDataStore.data.first() }.getOrNull() ?: return subs
+        val enabled = prefs[filterSubtitlesByLanguageKey()] ?: true
+        if (!enabled) return subs
+        val preferred = prefs[defaultSubtitleKey()]?.trim().orEmpty()
+        if (isSubtitleDisabledPreference(preferred)) return subs
+        val normalizedPref = normalizeLanguage(preferred)
+        if (normalizedPref.isBlank()) return subs
+
+        fun matchesLang(sub: Subtitle, lang: String): Boolean {
+            val tokens = buildSet {
+                add(normalizeLanguage(sub.lang))
+                add(normalizeLanguage(sub.label))
+                Regex("[A-Za-z-]+").findAll("${sub.lang} ${sub.label}")
+                    .map { normalizeLanguage(it.value) }
+                    .filter { it.isNotBlank() }
+                    .forEach { add(it) }
+            }
+            if (tokens.contains(lang)) return true
+            // Substring match only for long-form names — avoids "en" matching "Indonesian"
+            if (lang.length > 2) {
+                return sub.lang.lowercase().contains(lang) || sub.label.lowercase().contains(lang)
+            }
+            return false
+        }
+
+        val primary = subs.filter { matchesLang(it, normalizedPref) }
+
+        val secondary = prefs[secondarySubtitleKey()]?.trim().orEmpty()
+        val secondaryFiltered = if (!isSubtitleDisabledPreference(secondary)) {
+            val normalizedSecondary = normalizeLanguage(secondary)
+            if (normalizedSecondary.isNotBlank() && normalizedSecondary != normalizedPref) {
+                subs.filter { matchesLang(it, normalizedSecondary) }
+            } else emptyList()
+        } else emptyList()
+
+        val combined = (primary + secondaryFiltered).distinctBy { it.id }
+        return combined.ifEmpty { subs }
     }
 
     private suspend fun resolveFrameRateMatchingMode(): String {
@@ -1200,9 +1256,11 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     val existing = _uiState.value.subtitles
-                    val merged = existing + extraSubs.filter { newSub ->
-                        newSub.url.isNotBlank() && existing.none { it.id == newSub.id || it.url == newSub.url }
-                    }
+                    val merged = filterSubsByPreferredLanguage(
+                        existing + extraSubs.filter { newSub ->
+                            newSub.url.isNotBlank() && existing.none { it.id == newSub.id || it.url == newSub.url }
+                        }
+                    )
                     _uiState.value = _uiState.value.copy(subtitles = merged)
 
                     // If nothing is selected yet, try to apply the default preference against the merged list.
@@ -1270,42 +1328,54 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun updatePlayerTextTracks(playerTextTracks: List<Subtitle>) {
-        val current = _uiState.value.subtitles
-        val trackBackedIds = playerTextTracks.map { it.id }.toSet()
+        viewModelScope.launch {
+            val current = _uiState.value.subtitles
+            val trackBackedIds = playerTextTracks.map { it.id }.toSet()
 
-        // Keep external subtitle entries that haven't been mapped to concrete track indices yet.
-        val unresolvedExternal = current.filter { subtitle ->
-            !subtitle.isEmbedded && subtitle.url.isNotBlank() && subtitle.id !in trackBackedIds
-        }
-
-        // Embedded subtitles first, then external/addon subtitles
-        val merged = (playerTextTracks + unresolvedExternal)
-            .distinctBy { subtitle ->
-                val normalizedId = subtitle.id.trim()
-                if (normalizedId.isNotBlank()) normalizedId
-                else "${subtitle.lang}|${subtitle.label}|${subtitle.url}"
+            // Keep external subtitle entries that haven't been mapped to concrete track indices yet.
+            val unresolvedExternal = current.filter { subtitle ->
+                !subtitle.isEmbedded && subtitle.url.isNotBlank() && subtitle.id !in trackBackedIds
             }
 
-        val selected = _uiState.value.selectedSubtitle
-        val resolvedSelected = if (selected != null) {
-            merged.firstOrNull { it.id == selected.id }
-                ?: merged.firstOrNull {
-                    selected.url.isNotBlank() && it.url == selected.url
+            // Embedded subtitles first, then external/addon subtitles
+            val merged = (playerTextTracks + unresolvedExternal)
+                .distinctBy { subtitle ->
+                    val normalizedId = subtitle.id.trim()
+                    if (normalizedId.isNotBlank()) normalizedId
+                    else "${subtitle.lang}|${subtitle.label}|${subtitle.url}"
                 }
-                ?: selected
-        } else {
-            null
-        }
 
-        _uiState.value = _uiState.value.copy(
-            subtitles = merged,
-            selectedSubtitle = resolvedSelected
-        )
+            // Apply the same language filter used for fetched external subs so that
+            // ExoPlayer text-track updates don't re-add all embedded languages to the menu.
+            val filtered = filterSubsByPreferredLanguage(merged)
 
-        if (_uiState.value.selectedSubtitle == null) {
-            viewModelScope.launch {
+            // Always keep the currently selected subtitle visible even if it doesn't
+            // match the preferred language filter so the active selection stays consistent.
+            val selected = _uiState.value.selectedSubtitle
+            val finalList = if (selected != null && filtered.none { it.id == selected.id }) {
+                (filtered + selected).distinctBy { s ->
+                    s.id.trim().ifBlank { "${s.lang}|${s.label}|${s.url}" }
+                }
+            } else {
+                filtered
+            }
+
+            val resolvedSelected = if (selected != null) {
+                finalList.firstOrNull { it.id == selected.id }
+                    ?: finalList.firstOrNull { selected.url.isNotBlank() && it.url == selected.url }
+                    ?: selected
+            } else {
+                null
+            }
+
+            _uiState.value = _uiState.value.copy(
+                subtitles = finalList,
+                selectedSubtitle = resolvedSelected
+            )
+
+            if (_uiState.value.selectedSubtitle == null) {
                 val preferred = getDefaultSubtitle()
-                applyPreferredSubtitle(preferred, merged, currentOriginalLanguage)
+                applyPreferredSubtitle(preferred, finalList, currentOriginalLanguage)
             }
         }
     }
