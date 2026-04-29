@@ -1,5 +1,10 @@
 image: mingc/android-build-box:latest
 
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
 variables:
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.caching=true"
   ANDROID_COMPILE_SDK: "35"
