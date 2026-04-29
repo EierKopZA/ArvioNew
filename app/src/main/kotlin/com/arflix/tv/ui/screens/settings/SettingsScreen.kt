@@ -1322,6 +1322,7 @@ fun SettingsScreen(
                 isSearching = uiState.isCatalogSearching,
                 error = uiState.catalogSearchError,
                 manualUrl = catalogInputUrl,
+                addedCatalogUrls = uiState.catalogs.mapNotNull { it.sourceUrl }.toSet(),
                 onQueryChange = viewModel::setCatalogSearchQuery,
                 onSearch = { viewModel.searchCatalogLists() },
                 onAddResult = viewModel::addDiscoveredCatalog,
@@ -4134,6 +4135,7 @@ private fun CatalogDiscoveryModal(
     isSearching: Boolean,
     error: String?,
     manualUrl: String,
+    addedCatalogUrls: Set<String>,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onAddResult: (CatalogDiscoveryResult) -> Unit,
@@ -4144,6 +4146,16 @@ private fun CatalogDiscoveryModal(
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
     var editingInput by remember { mutableStateOf<CatalogDiscoveryInputTarget?>(null) }
+    var optimisticAddedUrls by remember { mutableStateOf(emptySet<String>()) }
+    val normalizedAddedCatalogUrls = remember(addedCatalogUrls) {
+        addedCatalogUrls.map { normalizeCatalogDiscoveryUrl(it) }.toSet()
+    }
+    fun addResult(result: CatalogDiscoveryResult) {
+        val normalizedUrl = normalizeCatalogDiscoveryUrl(result.sourceUrl)
+        if (normalizedUrl in normalizedAddedCatalogUrls || normalizedUrl in optimisticAddedUrls) return
+        optimisticAddedUrls = optimisticAddedUrls + normalizedUrl
+        onAddResult(result)
+    }
     fun submitSearch() {
         focusManager.clearFocus()
         (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
@@ -4189,10 +4201,10 @@ private fun CatalogDiscoveryModal(
                             .padding(10.dp)
                     ) {
                         CatalogDiscoveryInputButton(
-                            label = "Search lists",
+                            label = "Search Lists",
                             value = query,
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = "top trending anime",
+                            placeholder = "Search Lists",
                             onClick = { editingInput = CatalogDiscoveryInputTarget.Search }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -4237,10 +4249,10 @@ private fun CatalogDiscoveryModal(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CatalogDiscoveryInputButton(
-                            label = "Search lists",
+                            label = "Search Lists",
                             value = query,
                             modifier = Modifier.weight(1f),
-                            placeholder = "top trending anime",
+                            placeholder = "Search Lists",
                             onClick = { editingInput = CatalogDiscoveryInputTarget.Search }
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -4370,9 +4382,12 @@ private fun CatalogDiscoveryModal(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 itemsIndexed(results, key = { _, item -> item.id }) { _, item ->
+                                    val isAdded = normalizeCatalogDiscoveryUrl(item.sourceUrl) in normalizedAddedCatalogUrls ||
+                                        normalizeCatalogDiscoveryUrl(item.sourceUrl) in optimisticAddedUrls
                                     CatalogDiscoveryResultRow(
                                         result = item,
-                                        onAdd = { onAddResult(item) },
+                                        isAdded = isAdded,
+                                        onAdd = { addResult(item) },
                                         compact = isCompact
                                     )
                                 }
@@ -4387,9 +4402,9 @@ private fun CatalogDiscoveryModal(
 
     editingInput?.let { target ->
         CatalogDiscoveryTextInputDialog(
-            title = if (target == CatalogDiscoveryInputTarget.Search) "Search lists" else "Paste catalog URL",
+            title = if (target == CatalogDiscoveryInputTarget.Search) "Search Lists" else "Paste catalog URL",
             initialValue = if (target == CatalogDiscoveryInputTarget.Search) query else manualUrl,
-            placeholder = if (target == CatalogDiscoveryInputTarget.Search) "top trending anime" else "https://trakt.tv/users/...",
+            placeholder = if (target == CatalogDiscoveryInputTarget.Search) "Search Lists" else "https://trakt.tv/users/...",
             confirmLabel = if (target == CatalogDiscoveryInputTarget.Search) "Use Search" else "Use URL",
             onConfirm = { value ->
                 if (target == CatalogDiscoveryInputTarget.Search) {
@@ -4545,6 +4560,7 @@ private fun CatalogDiscoveryTextInputDialog(
 @Composable
 private fun CatalogDiscoveryResultRow(
     result: CatalogDiscoveryResult,
+    isAdded: Boolean,
     onAdd: () -> Unit,
     compact: Boolean = false
 ) {
@@ -4560,6 +4576,7 @@ private fun CatalogDiscoveryResultRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
+                .clickable(enabled = !isAdded, onClick = onAdd)
                 .background(
                     if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.38f),
                     RoundedCornerShape(14.dp)
@@ -4661,9 +4678,11 @@ private fun CatalogDiscoveryResultRow(
 
             Spacer(modifier = Modifier.height(10.dp))
             DiscoveryActionButton(
-                label = "Add",
+                label = if (isAdded) "Added" else "Add",
                 onClick = onAdd,
+                icon = if (isAdded) Icons.Default.Check else null,
                 highlighted = true,
+                enabled = !isAdded,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -4674,6 +4693,7 @@ private fun CatalogDiscoveryResultRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = !isAdded, onClick = onAdd)
             .background(
                 if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.38f),
                 RoundedCornerShape(14.dp)
@@ -4807,8 +4827,10 @@ private fun CatalogDiscoveryResultRow(
 
         Spacer(modifier = Modifier.width(18.dp))
         DiscoveryActionButton(
-            label = "Add",
+            label = if (isAdded) "Added" else "Add",
             onClick = onAdd,
+            icon = if (isAdded) Icons.Default.Check else null,
+            enabled = !isAdded,
             highlighted = true
         )
     }
@@ -4844,6 +4866,7 @@ private fun SourceChip(
 private fun DiscoveryActionButton(
     label: String,
     onClick: () -> Unit,
+    icon: ImageVector? = null,
     highlighted: Boolean = false,
     enabled: Boolean = true,
     modifier: Modifier = Modifier
@@ -4877,18 +4900,37 @@ private fun DiscoveryActionButton(
             .padding(horizontal = 22.dp, vertical = 13.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            style = ArflixTypography.button,
-            color = when {
-                !enabled -> TextSecondary.copy(alpha = 0.42f)
-                isFocused -> Color.Black
-                else -> TextPrimary
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        val contentColor = when {
+            !enabled -> TextSecondary.copy(alpha = 0.72f)
+            isFocused -> Color.Black
+            else -> TextPrimary
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = label,
+                style = ArflixTypography.button,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
+}
+
+private fun normalizeCatalogDiscoveryUrl(url: String): String {
+    return url.trim().trimEnd('/').lowercase()
 }
 
 private fun sourceLabel(sourceType: CatalogSourceType): String {
