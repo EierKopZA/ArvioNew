@@ -2631,6 +2631,13 @@ private fun MobileSettingsMainPage(
                     onClick = openSecondarySubtitlePicker
                 )
                 MobileSettingsRow(
+                    icon = Icons.Default.Subtitles,
+                    title = stringResource(R.string.filter_subtitles),
+                    value = if (uiState.filterSubtitlesByLanguage) "On" else "Off",
+                    isFocused = false,
+                    onClick = { viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage) }
+                )
+                MobileSettingsRow(
                     icon = Icons.Default.VolumeUp,
                     title = stringResource(R.string.default_audio),
                     value = uiState.defaultAudioLanguage,
@@ -2825,8 +2832,16 @@ private fun MobileSettingsSubPage(
                         title = stringResource(R.string.subtitle_color),
                         value = uiState.subtitleColor,
                         isFocused = false,
-                        showDivider = false,
                         onClick = { viewModel.cycleSubtitleColor() }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Subtitles,
+                        title = stringResource(R.string.filter_subtitles),
+                        subtitle = stringResource(R.string.filter_subtitles_desc),
+                        value = if (uiState.filterSubtitlesByLanguage) "On" else "Off",
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage) }
                     )
                 }
                 MobileSettingsCategory(title = "AUDIO") {
