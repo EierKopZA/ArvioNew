@@ -1328,42 +1328,54 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun updatePlayerTextTracks(playerTextTracks: List<Subtitle>) {
-        val current = _uiState.value.subtitles
-        val trackBackedIds = playerTextTracks.map { it.id }.toSet()
+        viewModelScope.launch {
+            val current = _uiState.value.subtitles
+            val trackBackedIds = playerTextTracks.map { it.id }.toSet()
 
-        // Keep external subtitle entries that haven't been mapped to concrete track indices yet.
-        val unresolvedExternal = current.filter { subtitle ->
-            !subtitle.isEmbedded && subtitle.url.isNotBlank() && subtitle.id !in trackBackedIds
-        }
-
-        // Embedded subtitles first, then external/addon subtitles
-        val merged = (playerTextTracks + unresolvedExternal)
-            .distinctBy { subtitle ->
-                val normalizedId = subtitle.id.trim()
-                if (normalizedId.isNotBlank()) normalizedId
-                else "${subtitle.lang}|${subtitle.label}|${subtitle.url}"
+            // Keep external subtitle entries that haven't been mapped to concrete track indices yet.
+            val unresolvedExternal = current.filter { subtitle ->
+                !subtitle.isEmbedded && subtitle.url.isNotBlank() && subtitle.id !in trackBackedIds
             }
 
-        val selected = _uiState.value.selectedSubtitle
-        val resolvedSelected = if (selected != null) {
-            merged.firstOrNull { it.id == selected.id }
-                ?: merged.firstOrNull {
-                    selected.url.isNotBlank() && it.url == selected.url
+            // Embedded subtitles first, then external/addon subtitles
+            val merged = (playerTextTracks + unresolvedExternal)
+                .distinctBy { subtitle ->
+                    val normalizedId = subtitle.id.trim()
+                    if (normalizedId.isNotBlank()) normalizedId
+                    else "${subtitle.lang}|${subtitle.label}|${subtitle.url}"
                 }
-                ?: selected
-        } else {
-            null
-        }
 
-        _uiState.value = _uiState.value.copy(
-            subtitles = merged,
-            selectedSubtitle = resolvedSelected
-        )
+            // Apply the same language filter used for fetched external subs so that
+            // ExoPlayer text-track updates don't re-add all embedded languages to the menu.
+            val filtered = filterSubsByPreferredLanguage(merged)
 
-        if (_uiState.value.selectedSubtitle == null) {
-            viewModelScope.launch {
+            // Always keep the currently selected subtitle visible even if it doesn't
+            // match the preferred language filter so the active selection stays consistent.
+            val selected = _uiState.value.selectedSubtitle
+            val finalList = if (selected != null && filtered.none { it.id == selected.id }) {
+                (filtered + selected).distinctBy { s ->
+                    s.id.trim().ifBlank { "${s.lang}|${s.label}|${s.url}" }
+                }
+            } else {
+                filtered
+            }
+
+            val resolvedSelected = if (selected != null) {
+                finalList.firstOrNull { it.id == selected.id }
+                    ?: finalList.firstOrNull { selected.url.isNotBlank() && it.url == selected.url }
+                    ?: selected
+            } else {
+                null
+            }
+
+            _uiState.value = _uiState.value.copy(
+                subtitles = finalList,
+                selectedSubtitle = resolvedSelected
+            )
+
+            if (_uiState.value.selectedSubtitle == null) {
                 val preferred = getDefaultSubtitle()
-                applyPreferredSubtitle(preferred, merged, currentOriginalLanguage)
+                applyPreferredSubtitle(preferred, finalList, currentOriginalLanguage)
             }
         }
     }

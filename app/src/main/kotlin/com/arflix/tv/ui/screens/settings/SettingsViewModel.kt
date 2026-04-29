@@ -781,6 +781,7 @@ class SettingsViewModel @Inject constructor(
                 prefs[secondarySubtitleKey()] = language
             }
             _uiState.value = _uiState.value.copy(secondarySubtitle = language)
+            syncLocalStateToCloud(silent = true)
         }
     }
 
@@ -790,6 +791,7 @@ class SettingsViewModel @Inject constructor(
                 prefs[filterSubtitlesByLanguageKey()] = enabled
             }
             _uiState.value = _uiState.value.copy(filterSubtitlesByLanguage = enabled)
+            syncLocalStateToCloud(silent = true)
         }
     }
 

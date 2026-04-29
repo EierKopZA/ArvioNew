@@ -119,7 +119,9 @@ class CloudSyncRepository @Inject constructor(
         val subtitleUsageJson: String = "",
         val subtitleSettingsUpdatedAt: Long = 0L,
         val iptvHiddenGroups: String = "",
-        val iptvGroupOrder: String = ""
+        val iptvGroupOrder: String = "",
+        val secondarySubtitle: String = "Off",
+        val filterSubtitlesByLanguage: Boolean = true
     )
 
     // ── DataStore key helpers ──
@@ -149,6 +151,10 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "iptv_hidden_groups")
     private fun iptvGroupOrderKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "iptv_group_order")
+    private fun secondarySubtitleKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, "secondary_subtitle")
+    private fun filterSubtitlesByLanguageKeyFor(profileId: String) =
+        profileManager.profileBooleanKeyFor(profileId, "filter_subtitles_by_lang")
     private fun defaultSubtitleKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "default_subtitle")
     private fun defaultAudioLanguageKeyFor(profileId: String) =
@@ -234,6 +240,8 @@ class CloudSyncRepository @Inject constructor(
                         subtitleColor = prefs[subtitleColorKeyFor(profile.id)] ?: "White",
                         iptvHiddenGroups = prefs[iptvHiddenGroupsKeyFor(profile.id)] ?: "",
                         iptvGroupOrder = prefs[iptvGroupOrderKeyFor(profile.id)] ?: "",
+                        secondarySubtitle = prefs[secondarySubtitleKeyFor(profile.id)] ?: "Off",
+                        filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKeyFor(profile.id)] ?: true,
                         cardLayoutMode = normalizeCardLayoutMode(
                             prefs[cardLayoutModeKeyFor(profile.id)] ?: CARD_LAYOUT_MODE_LANDSCAPE
                         ),
@@ -532,6 +540,8 @@ class CloudSyncRepository @Inject constructor(
                         prefs[subtitleColorKeyFor(profileId)] = state.subtitleColor
                         if (state.iptvHiddenGroups.isNotBlank()) prefs[iptvHiddenGroupsKeyFor(profileId)] = state.iptvHiddenGroups
                         if (state.iptvGroupOrder.isNotBlank()) prefs[iptvGroupOrderKeyFor(profileId)] = state.iptvGroupOrder
+                        prefs[secondarySubtitleKeyFor(profileId)] = state.secondarySubtitle.ifBlank { "Off" }
+                        prefs[filterSubtitlesByLanguageKeyFor(profileId)] = state.filterSubtitlesByLanguage
                         prefs[cardLayoutModeKeyFor(profileId)] = normalizeCardLayoutMode(state.cardLayoutMode)
                         prefs[frameRateMatchingModeKeyFor(profileId)] = normalizeFrameRateMode(state.frameRateMatchingMode)
                         prefs[autoPlayNextKeyFor(profileId)] = state.autoPlayNext
