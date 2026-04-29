@@ -596,8 +596,14 @@ class AnimeMapper @Inject constructor(
                 return@withContext "kitsu:$lastId:$remaining"
             }
 
-            // Standard case: TMDB season maps to corresponding Kitsu entry
-            val seasonIndex = (season - 1).coerceIn(0, kitsuIds.size - 1)
+            // Standard case: TMDB season maps to the corresponding Kitsu entry.
+            // Do not clamp high season numbers down to the last known Kitsu entry:
+            // that makes requests like TMDB S4E4 fetch the previous mapped season
+            // (for example S3E4) when ARM has an incomplete mapping.
+            val seasonIndex = season - 1
+            if (seasonIndex !in kitsuIds.indices) {
+                return@withContext null
+            }
             val kitsuId = kitsuIds[seasonIndex]
 
             // Check if episode exceeds this entry's count (cour split within season)

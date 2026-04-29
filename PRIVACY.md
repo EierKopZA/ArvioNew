@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: February 7, 2026**
+**Last updated: April 25, 2026**
 
 ## Overview
 
@@ -14,7 +14,11 @@ ARVIO ("the App") is an Android TV media hub application. This policy explains h
 - App preferences and settings (stored locally on device)
 
 ### Device Information
-- Device type and Android version (for compatibility, not collected by us)
+- Device type and Android version for compatibility and crash diagnostics
+
+### Crash Diagnostics
+- Crash stack traces, app version, device model, Android version, and limited app state may be sent to Sentry if crash reporting is enabled in the build
+- ARVIO does not intentionally send stream URLs, account tokens, email addresses, screenshots, or view hierarchy data in crash reports
 
 ## How We Use Your Data
 
@@ -30,11 +34,13 @@ The App uses the following third-party services:
 |---------|---------|----------------|
 | TMDB | Movie/TV metadata and images | [themoviedb.org/privacy-policy](https://www.themoviedb.org/privacy-policy) |
 | Trakt.tv | Watch history sync (optional) | [trakt.tv/privacy](https://trakt.tv/privacy) |
+| Sentry | Crash reporting and diagnostics, when enabled | [sentry.io/privacy](https://sentry.io/privacy/) |
 
 ## Data Storage
 
 - All preferences and settings are stored locally on your device
 - Watch history is stored on Trakt.tv only if you connect your account
+- Crash diagnostics are stored by Sentry only when crash reporting is enabled in the build
 - No account or personal data is stored on our servers
 
 ## Data Sharing

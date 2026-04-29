@@ -80,6 +80,7 @@ fun TextInputModal(
     hint: String = "",
     initialValue: String = "",
     isPassword: Boolean = false,
+    isNumeric: Boolean = false,
     onConfirm: (String) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -232,10 +233,19 @@ fun TextInputModal(
                                 background = null
                                 setPadding(32, 32, 32, 32)
                                 isSingleLine = true
-                                inputType = if (isPassword) {
-                                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                                } else {
-                                    InputType.TYPE_CLASS_TEXT
+                                inputType = when {
+                                    isNumeric && isPassword -> {
+                                        InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                                    }
+                                    isNumeric -> {
+                                        InputType.TYPE_CLASS_NUMBER
+                                    }
+                                    isPassword -> {
+                                        InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                                    }
+                                    else -> {
+                                        InputType.TYPE_CLASS_TEXT
+                                    }
                                 }
                                 imeOptions = EditorInfo.IME_ACTION_DONE
 

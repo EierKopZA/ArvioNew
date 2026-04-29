@@ -31,7 +31,7 @@ android {
         // Lower minSdk to maximize compatibility and avoid "There was a problem parsing the package".
         minSdk = 21
         targetSdk = 35
-        versionCode = 258
+        versionCode = 259
         versionName = "1.9.9"
         buildConfigField("String", "GITHUB_OWNER", "\"ProdigyV21\"")
         buildConfigField("String", "GITHUB_REPO", "\"ARVIO\"")
@@ -307,6 +307,10 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-crashlytics-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
+
+    // Sentry crash reporting. Runtime initialization is gated by BuildConfig.ENABLE_CRASH_REPORTING
+    // and SENTRY_DSN from secrets.properties/secrets.defaults.properties.
+    implementation("io.sentry:sentry-android:8.40.0")
 
     baselineProfile(project(":benchmark"))
 

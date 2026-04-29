@@ -32,6 +32,7 @@ import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.CrashlyticsProvider
 import com.arflix.tv.util.DeviceType
+import com.arflix.tv.util.SentryCrashReporter
 import com.arflix.tv.util.detectDeviceType
 import com.arflix.tv.worker.TraktSyncWorker
 import dagger.hilt.android.HiltAndroidApp
@@ -93,8 +94,11 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
         }
 
-        // Initialize crash reporting (gracefully handles missing Firebase config)
-        CrashlyticsProvider.initialize()
+        // Initialize crash reporting. Sentry is preferred when SENTRY_DSN is configured;
+        // Crashlytics remains as a fallback for builds with Firebase configuration.
+        if (!SentryCrashReporter.initialize(this)) {
+            CrashlyticsProvider.initialize()
+        }
         // Initialize active profile asynchronously to avoid blocking cold start.
         // Wire realtime push notification
         cloudSyncRepository.onPushCompleted = { realtimeSyncManager.markPush() }
