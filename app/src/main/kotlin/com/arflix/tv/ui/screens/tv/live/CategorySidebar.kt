@@ -38,12 +38,16 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,11 +64,15 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Left-hand category sidebar. Spec §3.1.
@@ -79,6 +87,7 @@ fun CategorySidebar(
     expanded: Boolean,
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
+    onHideCategory: (String) -> Unit = {},
     onFocusEnter: () -> Unit = {},
     onMoveRight: () -> Unit = {},
     onTopBoundaryFocusChanged: (Boolean) -> Unit = {},
@@ -91,11 +100,17 @@ fun CategorySidebar(
         label = "sidebar-width",
     )
     var expandedCountry by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedAll by rememberSaveable { mutableStateOf(false) }
+    var menuForGroup by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedId, tree) {
         val countryId = selectedCountryGroupId(selectedId, tree)
         if (countryId != null) {
             expandedCountry = countryId
+        }
+        val allCategory = tree.top.firstOrNull { it.id == "all" }
+        if (allCategory?.children?.any { child -> child.containsId(selectedId) } == true) {
+            expandedAll = true
         }
     }
 
@@ -132,15 +147,57 @@ fun CategorySidebar(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(tree.top, key = { it.id }) { cat ->
+                val isAllGroup = cat.id == "all" && cat.children.isNotEmpty()
+                val isOpen = isAllGroup && expandedAll
                 SidebarRow(
                     label = cat.label,
                     count = cat.count,
                     icon = iconFor(cat),
                     active = selectedId == cat.id,
                     expanded = expanded,
+                    hasChildren = isAllGroup,
+                    isOpenGroup = isOpen,
                     onFocused = { onTopBoundaryFocusChanged(false) },
-                    onClick = { onSelect(cat.id) },
+                    onClick = {
+                        if (isAllGroup) {
+                            expandedAll = !expandedAll
+                        }
+                        onSelect(cat.id)
+                    },
                 )
+                if (isOpen && expanded) {
+                    cat.children.forEach { child ->
+                        SidebarRow(
+                            label = child.label,
+                            count = child.count,
+                            icon = iconFor(child),
+                            flagEmoji = child.flagEmoji,
+                            active = selectedId == child.id,
+                            expanded = true,
+                            indent = 28.dp,
+                            labelSize = 10.5.sp,
+                            hasChildren = child.children.isNotEmpty(),
+                            isOpenGroup = child.containsId(selectedId),
+                            onFocused = { onTopBoundaryFocusChanged(false) },
+                            onClick = { onSelect(child.id) },
+                        )
+                        if (child.containsId(selectedId)) {
+                            child.children.forEach { grandchild ->
+                                SidebarRow(
+                                    label = grandchild.label,
+                                    count = grandchild.count,
+                                    icon = iconFor(grandchild),
+                                    active = selectedId == grandchild.id,
+                                    expanded = true,
+                                    indent = 48.dp,
+                                    labelSize = 9.5.sp,
+                                    onFocused = { onTopBoundaryFocusChanged(false) },
+                                    onClick = { onSelect(grandchild.id) },
+                                )
+                            }
+                        }
+                    }
+                }
             }
             if (tree.global.categories.isNotEmpty()) {
                 item { SectionHeader(tree.global.label, expanded) }
@@ -151,7 +208,18 @@ fun CategorySidebar(
                         icon = iconFor(cat),
                         active = selectedId == cat.id,
                         expanded = expanded,
+                        showMenu = menuForGroup == cat.playlistGroupName,
+                        canHide = cat.playlistGroupName != null,
                         onFocused = { onTopBoundaryFocusChanged(false) },
+                        onLongClick = {
+                            menuForGroup = cat.playlistGroupName
+                        },
+                        onDismissMenu = { menuForGroup = null },
+                        onHide = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            menuForGroup = null
+                            onHideCategory(groupName)
+                        },
                         onClick = { onSelect(cat.id) },
                     )
                 }
@@ -192,7 +260,7 @@ fun CategorySidebar(
                                 active = selectedId == child.id,
                                 expanded = true,
                                 indent = 40.dp,
-                                labelSize = 13.sp,
+                                labelSize = 10.5.sp,
                                 onFocused = { onTopBoundaryFocusChanged(false) },
                                 onClick = { onSelect(child.id) },
                             )
@@ -302,14 +370,23 @@ private fun SidebarRow(
     expanded: Boolean,
     onClick: () -> Unit,
     onFocused: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    showMenu: Boolean = false,
+    canHide: Boolean = false,
+    onDismissMenu: () -> Unit = {},
+    onHide: () -> Unit = {},
     flagEmoji: String? = null,
     leadingCode: String? = null,
     hasChildren: Boolean = false,
     isOpenGroup: Boolean = false,
     indent: androidx.compose.ui.unit.Dp = 0.dp,
-    labelSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+    labelSize: androidx.compose.ui.unit.TextUnit = 11.sp,
 ) {
     var focused by remember { mutableStateOf(false) }
+    var consumedLongPress by remember { mutableStateOf(false) }
+    var selectPressed by remember { mutableStateOf(false) }
+    var longPressJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
     val bg = when {
         active && focused -> LiveColors.FocusBg
         active -> LiveColors.FocusBg
@@ -348,12 +425,47 @@ private fun SidebarRow(
                 .background(if (focused) LiveColors.PanelRaised else bg)
                 .focusable()
                 .onKeyEvent { ev ->
-                    if (ev.type == KeyEventType.KeyDown &&
-                        (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
-                        onClick(); true
-                    } else false
+                    val isSelect = ev.key == Key.DirectionCenter || ev.key == Key.Enter
+                    when {
+                        !isSelect -> false
+                        ev.type == KeyEventType.KeyDown -> {
+                            if (!selectPressed) {
+                                selectPressed = true
+                                consumedLongPress = false
+                                longPressJob?.cancel()
+                                if (onLongClick != null) {
+                                    longPressJob = scope.launch {
+                                        delay(520L)
+                                        if (selectPressed) {
+                                            consumedLongPress = true
+                                            onLongClick()
+                                        }
+                                    }
+                                }
+                            }
+                            true
+                        }
+                        ev.type == KeyEventType.KeyUp && consumedLongPress -> {
+                            longPressJob?.cancel()
+                            selectPressed = false
+                            consumedLongPress = false
+                            true
+                        }
+                        ev.type == KeyEventType.KeyUp -> {
+                            longPressJob?.cancel()
+                            selectPressed = false
+                            onClick()
+                            true
+                        }
+                        else -> false
+                    }
                 }
-                .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
+                .pointerInput(onLongClick) {
+                    detectTapGestures(
+                        onTap = { onClick() },
+                        onLongPress = { onLongClick?.invoke() },
+                    )
+                }
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -392,7 +504,7 @@ private fun SidebarRow(
                 if (count > 0) {
                     Text(
                         text = formatCount(count),
-                        style = LiveType.NumberMono.copy(color = LiveColors.FgMute),
+                        style = LiveType.NumberMono.copy(color = LiveColors.FgMute, fontSize = 7.sp),
                     )
                 }
                 if (hasChildren) {
@@ -406,6 +518,49 @@ private fun SidebarRow(
                 }
             }
         }
+        if (showMenu && canHide) {
+            CategoryContextMenu(
+                onDismiss = onDismissMenu,
+                onHide = onHide,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CategoryContextMenu(
+    onDismiss: () -> Unit,
+    onHide: () -> Unit,
+) {
+    DropdownMenu(
+        expanded = true,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .background(LiveColors.PanelRaised)
+            .border(1.dp, LiveColors.FocusRing.copy(alpha = 0.7f), RoundedCornerShape(8.dp)),
+    ) {
+        DropdownMenuItem(
+            text = {
+                Text(
+                    text = "Hide category",
+                    style = LiveType.CatLabel.copy(
+                        color = LiveColors.Fg,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.VisibilityOff,
+                    contentDescription = null,
+                    tint = LiveColors.FgDim,
+                    modifier = Modifier.size(16.dp),
+                )
+            },
+            onClick = onHide,
+        )
     }
 }
 
@@ -415,6 +570,11 @@ private fun selectedCountryGroupId(
 ): String? = tree.countries.categories.firstOrNull { country ->
     country.id == selectedId || country.children.any { child -> child.id == selectedId }
 }?.id
+
+private fun LiveCategory.containsId(id: String): Boolean {
+    if (this.id == id) return true
+    return children.any { child -> child.containsId(id) }
+}
 
 private fun iconFor(cat: LiveCategory): ImageVector? = when (cat.iconToken) {
     CategoryIcon.Favorite -> Icons.Filled.Star

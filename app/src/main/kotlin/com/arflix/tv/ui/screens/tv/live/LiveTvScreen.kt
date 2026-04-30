@@ -165,6 +165,7 @@ fun LiveTvScreen(
     var selectedCategoryId by rememberSaveable { mutableStateOf("all") }
     val recents = remember { mutableStateOf<LinkedHashSet<String>>(LinkedHashSet()) }
     val favSet = remember(state.snapshot.favoriteChannels) { state.snapshot.favoriteChannels.toSet() }
+    val hiddenGroupSet = remember(state.snapshot.hiddenGroups) { state.snapshot.hiddenGroups.toSet() }
     var seededRecentSessionChannel by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.tvSession.lastChannelId) {
         if (!seededRecentSessionChannel && state.tvSession.lastChannelId.isNotBlank()) {
@@ -211,6 +212,7 @@ fun LiveTvScreen(
                 channels = initialChannels,
                 favoritesCount = favSet.count { it in initialIndex.byId },
                 recentCount = recents.value.count { it in initialIndex.byId },
+                hiddenGroups = hiddenGroupSet,
             )
         }
         enrichedState.value = EnrichedChannels(
@@ -227,6 +229,7 @@ fun LiveTvScreen(
                 channels = enriched,
                 favoritesCount = favSet.count { it in index.byId },
                 recentCount = recents.value.count { it in index.byId },
+                hiddenGroups = hiddenGroupSet,
             )
         }
         val value = EnrichedChannels(all = enriched, tree = tree, index = index)
@@ -235,7 +238,7 @@ fun LiveTvScreen(
         viewModel.cachedChannelsSignature = signature
     }
     // Re-evaluate only dynamic counts when favorites/recents change.
-    LaunchedEffect(favSet, recents.value, enrichedState.value.all) {
+    LaunchedEffect(favSet, hiddenGroupSet, recents.value, enrichedState.value.all) {
         val current = enrichedState.value
         if (current === EnrichedChannels.Empty) return@LaunchedEffect
         val byId = current.index.byId
@@ -244,9 +247,15 @@ fun LiveTvScreen(
                 channels = current.all,
                 favoritesCount = favSet.count { it in byId },
                 recentCount = recents.value.count { it in byId },
+                hiddenGroups = hiddenGroupSet,
             )
         }
         enrichedState.value = current.copy(tree = tree)
+    }
+    LaunchedEffect(hiddenGroupSet, selectedCategoryId, enrichedState.value.tree) {
+        if (selectedCategoryId != "all" && enrichedState.value.tree.byId(selectedCategoryId) == null) {
+            selectedCategoryId = "all"
+        }
     }
 
     // Selected category (persist across nav). Defaults to "all".
@@ -638,6 +647,10 @@ fun LiveTvScreen(
                     expanded = sidebarExpanded,
                     onSelect = { id -> selectedCategoryId = id },
                     onOpenSearch = { searchOpen = true },
+                    onHideCategory = { groupName ->
+                        selectedCategoryId = "all"
+                        viewModel.toggleHiddenGroup(groupName)
+                    },
                     onFocusEnter = { focusZone = LiveTvFocusZone.SIDEBAR },
                     onMoveRight = {
                         focusZone = LiveTvFocusZone.EPG

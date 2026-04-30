@@ -265,6 +265,7 @@ data class LiveCategory(
     val iconToken: CategoryIcon,
     val flagEmoji: String? = null,
     val children: List<LiveCategory> = emptyList(),
+    val playlistGroupName: String? = null,
 ) {
     val isGroup: Boolean get() = children.isNotEmpty()
 }
@@ -281,15 +282,32 @@ data class LiveCategoryTree(
 ) {
     val allSections: List<LiveSection> = listOf(global, countries, adult)
     fun byId(id: String): LiveCategory? {
-        top.firstOrNull { it.id == id }?.let { return it }
+        fun findIn(category: LiveCategory): LiveCategory? {
+            if (category.id == id) return category
+            category.children.forEach { child ->
+                findIn(child)?.let { return it }
+            }
+            return null
+        }
+        top.forEach { category ->
+            findIn(category)?.let { return it }
+        }
         for (section in allSections) {
             for (cat in section.categories) {
-                if (cat.id == id) return cat
-                cat.children.firstOrNull { it.id == id }?.let { return it }
+                findIn(cat)?.let { return it }
             }
         }
         return null
     }
+}
+
+private fun playlistGroupLabel(group: String): String {
+    return group.trim().ifBlank { "Ungrouped" }
+}
+
+fun playlistGroupCategoryId(group: String): String {
+    val normalized = playlistGroupLabel(group).lowercase()
+    return "grp:${normalized.hashCode().toUInt().toString(16)}"
 }
 
 /**
@@ -300,6 +318,7 @@ fun buildCategoryTree(
     channels: List<EnrichedChannel>,
     favoritesCount: Int,
     recentCount: Int,
+    hiddenGroups: Set<String> = emptySet(),
 ): LiveCategoryTree {
     data class CountryAccumulator(
         var total: Int = 0,
@@ -324,8 +343,17 @@ fun buildCategoryTree(
     var docsCount = 0
     var musicCount = 0
     val countryAccumulators = LinkedHashMap<String, CountryAccumulator>()
+    val playlistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
+    val hiddenPlaylistGroups = hiddenGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
 
     channels.forEach { channel ->
+        val groupLabel = playlistGroupLabel(channel.source.group)
+        if (groupLabel !in hiddenPlaylistGroups) {
+            val groupId = playlistGroupCategoryId(channel.source.group)
+            val groupCount = playlistGroupCounts[groupId]?.second ?: 0
+            playlistGroupCounts[groupId] = groupLabel to (groupCount + 1)
+        }
+
         if (channel.isAdult) {
             adultCount += 1
             return@forEach
@@ -368,13 +396,7 @@ fun buildCategoryTree(
         }
     }
 
-    val top = listOf(
-        LiveCategory("fav", "Favorites", favoritesCount, CategoryIcon.Favorite),
-        LiveCategory("recent", "Recent", recentCount, CategoryIcon.Recent),
-        LiveCategory("all", "All Channels", allCount, CategoryIcon.All),
-    )
-
-    val global = LiveSection("global", "GLOBAL", listOf(
+    val autoGlobal = listOf(
         LiveCategory("g-4k",     "4K | Ultra HD",      ultraHdCount, CategoryIcon.Grid),
         LiveCategory("g-sports", "Sports · Global",    sportsCount, CategoryIcon.Sport),
         LiveCategory("g-movies", "Movies · Global",    moviesCount, CategoryIcon.Movie),
@@ -382,7 +404,7 @@ fun buildCategoryTree(
         LiveCategory("g-kids",   "Kids · Global",      kidsCount,   CategoryIcon.Kids),
         LiveCategory("g-docs",   "Documentary",        docsCount,   CategoryIcon.Docs),
         LiveCategory("g-music",  "Music",              musicCount,  CategoryIcon.Music),
-    ).filter { it.count > 0 })
+    ).filter { it.count > 0 }
 
     val countryCategories = countryAccumulators
         .entries
@@ -420,12 +442,26 @@ fun buildCategoryTree(
             )
         }
 
-    val countries = LiveSection("countries", "COUNTRIES", countryCategories)
-
     val adultCategories = listOf(
         LiveCategory("adult", "Adult", adultCount, CategoryIcon.Lock),
     ).filter { it.count > 0 }
-    val adult = LiveSection("adult", "ADULT", adultCategories)
+    val top = listOf(
+        LiveCategory("fav", "Favorites", favoritesCount, CategoryIcon.Favorite),
+        LiveCategory("recent", "Recent", recentCount, CategoryIcon.Recent),
+        LiveCategory(
+            id = "all",
+            label = "All Channels",
+            count = allCount,
+            iconToken = CategoryIcon.All,
+            children = autoGlobal + countryCategories + adultCategories,
+        ),
+    )
+    val playlistGroups = playlistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+    }
+    val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
+    val countries = LiveSection("matched", "MATCHED", emptyList())
+    val adult = LiveSection("adult", "ADULT", emptyList())
 
     return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult)
 }
@@ -434,6 +470,7 @@ fun buildCategoryTree(
     channels: List<IptvChannel>,
     favorites: Set<String>,
     recents: Set<String>,
+    hiddenGroups: Set<String> = emptySet(),
 ): LiveCategoryTree {
     data class RawCountryAccumulator(
         var total: Int = 0,
@@ -458,9 +495,18 @@ fun buildCategoryTree(
     var docsCount = 0
     var musicCount = 0
     val countryAccumulators = LinkedHashMap<String, RawCountryAccumulator>()
+    val playlistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
+    val hiddenPlaylistGroups = hiddenGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
 
     channels.forEach { channel ->
         val traits = channel.traits()
+        val groupLabel = playlistGroupLabel(channel.group)
+        if (groupLabel !in hiddenPlaylistGroups) {
+            val groupId = playlistGroupCategoryId(channel.group)
+            val groupCount = playlistGroupCounts[groupId]?.second ?: 0
+            playlistGroupCounts[groupId] = groupLabel to (groupCount + 1)
+        }
+
         if (traits.isAdult) {
             adultCount += 1
             return@forEach
@@ -500,14 +546,7 @@ fun buildCategoryTree(
         }
     }
 
-    val channelIds = channels.asSequence().map { it.id }.toHashSet()
-    val top = listOf(
-        LiveCategory("fav", "Favorites", favorites.count { it in channelIds }, CategoryIcon.Favorite),
-        LiveCategory("recent", "Recent", recents.count { it in channelIds }, CategoryIcon.Recent),
-        LiveCategory("all", "All Channels", allCount, CategoryIcon.All),
-    )
-
-    val global = LiveSection("global", "GLOBAL", listOf(
+    val autoGlobal = listOf(
         LiveCategory("g-4k", "4K | Ultra HD", ultraHdCount, CategoryIcon.Grid),
         LiveCategory("g-sports", "Sports · Global", sportsCount, CategoryIcon.Sport),
         LiveCategory("g-movies", "Movies · Global", moviesCount, CategoryIcon.Movie),
@@ -515,7 +554,7 @@ fun buildCategoryTree(
         LiveCategory("g-kids", "Kids · Global", kidsCount, CategoryIcon.Kids),
         LiveCategory("g-docs", "Documentary", docsCount, CategoryIcon.Docs),
         LiveCategory("g-music", "Music", musicCount, CategoryIcon.Music),
-    ).filter { it.count > 0 })
+    ).filter { it.count > 0 }
 
     val countryCategories = countryAccumulators
         .entries
@@ -553,12 +592,25 @@ fun buildCategoryTree(
             )
         }
 
-    val countries = LiveSection("countries", "COUNTRIES", countryCategories)
-    val adult = LiveSection(
-        "adult",
-        "ADULT",
-        listOf(LiveCategory("adult", "Adult", adultCount, CategoryIcon.Lock)).filter { it.count > 0 }
+    val adultCategories = listOf(LiveCategory("adult", "Adult", adultCount, CategoryIcon.Lock)).filter { it.count > 0 }
+    val channelIds = channels.asSequence().map { it.id }.toHashSet()
+    val top = listOf(
+        LiveCategory("fav", "Favorites", favorites.count { it in channelIds }, CategoryIcon.Favorite),
+        LiveCategory("recent", "Recent", recents.count { it in channelIds }, CategoryIcon.Recent),
+        LiveCategory(
+            id = "all",
+            label = "All Channels",
+            count = allCount,
+            iconToken = CategoryIcon.All,
+            children = autoGlobal + countryCategories + adultCategories,
+        ),
     )
+    val playlistGroups = playlistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+    }
+    val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
+    val countries = LiveSection("matched", "MATCHED", emptyList())
+    val adult = LiveSection("adult", "ADULT", emptyList())
 
     return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult)
 }
@@ -572,6 +624,7 @@ private fun rawCategoryMatcher(
     if (categoryId == "fav") return { ch -> ch.id in favorites && !ch.traits().isAdult }
     if (categoryId == "recent") return { ch -> ch.id in recents && !ch.traits().isAdult }
     if (categoryId == "adult") return { ch -> ch.traits().isAdult }
+    if (categoryId.startsWith("grp:")) return { ch -> playlistGroupCategoryId(ch.group) == categoryId }
     if (categoryId == "g-4k") return { ch -> ch.traits().let { !it.isAdult && it.quality == Quality.K4 } }
     if (categoryId == "g-sports") return { ch -> ch.traits().let { !it.isAdult && it.genre == Genre.Sports } }
     if (categoryId == "g-movies") return { ch -> ch.traits().let { !it.isAdult && it.genre == Genre.Movies } }
@@ -672,6 +725,7 @@ fun buildCategoryIndex(channels: List<EnrichedChannel>): LiveCategoryIndex {
 
     channels.forEach { channel ->
         byId[channel.id] = channel
+        add(playlistGroupCategoryId(channel.source.group), channel)
         if (channel.isAdult) {
             add("adult", channel)
             return@forEach
@@ -721,6 +775,8 @@ fun bestCategoryIdForChannel(
     channel: EnrichedChannel,
     tree: LiveCategoryTree,
 ): String {
+    val playlistGroupId = playlistGroupCategoryId(channel.source.group)
+    if (tree.byId(playlistGroupId) != null) return playlistGroupId
     if (channel.isAdult) return "adult"
 
     val countryId = channel.country
@@ -751,6 +807,7 @@ fun categoryMatcher(
         categoryId == "fav"    -> { ch -> ch.id in favorites && !ch.isAdult }
         categoryId == "recent" -> { ch -> ch.id in recents && !ch.isAdult }
         categoryId == "adult"  -> { ch -> ch.isAdult }
+        categoryId.startsWith("grp:") -> { ch -> playlistGroupCategoryId(ch.source.group) == categoryId }
         categoryId == "g-4k"      -> { ch -> ch.quality == Quality.K4 && !ch.isAdult }
         categoryId == "g-sports"  -> { ch -> ch.genre == Genre.Sports && !ch.isAdult }
         categoryId == "g-movies"  -> { ch -> ch.genre == Genre.Movies && !ch.isAdult }
