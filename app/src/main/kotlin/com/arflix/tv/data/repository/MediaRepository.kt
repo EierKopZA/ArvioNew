@@ -634,9 +634,9 @@ class MediaRepository @Inject constructor(
                 title = "Crunchyroll",
                 group = CollectionGroupKind.SERVICE,
                 description = "Anime on Crunchyroll.",
-                cover = "https://ingeniousguru.com/wp-content/uploads/2022/10/creeky-roll.gif",
+                cover = "https://mir-s3-cdn-cf.behance.net/project_modules/fs_webp/380e75223389683.67f7c1dc0669a.png",
                 focusGif = null,
-                hero = "https://image.tmdb.org/t/p/original/3GQKYh6Trm8pxd2AypovoYQf4Ay.jpg",
+                heroVideo = "${mrtxivBase}networks%20videos/crunchyroll.mp4",
                 clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "movie", "streaming.cru_movie"),
