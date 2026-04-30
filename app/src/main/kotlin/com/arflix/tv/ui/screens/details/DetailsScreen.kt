@@ -773,7 +773,8 @@ fun DetailsScreen(
                 TrailerPlayer(
                     youtubeKey = uiState.trailerKey!!,
                     modifier = Modifier.fillMaxSize(),
-                    delayMs = 0L
+                    delayMs = 0L,
+                    volume = 1f
                 )
                 // Close button for touch devices
                 Box(

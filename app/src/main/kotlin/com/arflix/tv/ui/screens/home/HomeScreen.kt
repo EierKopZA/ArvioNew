@@ -855,9 +855,10 @@ fun HomeScreen(
                 }
 
                 // YouTube trailer auto-play (muted, no controls)
-                if (isMobile && heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
+                if (heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
                     TrailerPlayer(
                         youtubeKey = uiState.heroTrailerKey!!,
+                        volume = 0f,
                         modifier = Modifier.fillMaxSize()
                     )
                 }

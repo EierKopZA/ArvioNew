@@ -38,7 +38,8 @@ import kotlinx.coroutines.withContext
 fun TrailerPlayer(
     youtubeKey: String,
     modifier: Modifier = Modifier,
-    delayMs: Long = 3000L
+    delayMs: Long = 3000L,
+    volume: Float = 0f
 ) {
     val context = LocalContext.current
     var shouldPlay by remember { mutableStateOf(false) }
@@ -72,7 +73,7 @@ fun TrailerPlayer(
     ) {
         val player = remember(youtubeKey) {
             ExoPlayer.Builder(context).build().apply {
-                volume = 0.5f // Half volume for background trailer
+                this.volume = volume.coerceIn(0f, 1f)
                 repeatMode = Player.REPEAT_MODE_ONE
                 playWhenReady = true
             }
