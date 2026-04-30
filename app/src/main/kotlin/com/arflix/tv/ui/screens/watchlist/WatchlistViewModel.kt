@@ -169,6 +169,13 @@ class WatchlistViewModel @Inject constructor(
     fun removeFromWatchlist(item: MediaItem) {
         viewModelScope.launch {
             try {
+                val traktConnected = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
+                if (traktConnected && !traktRepository.removeFromWatchlist(item.mediaType, item.id)) {
+                    throw IllegalStateException("Failed to remove from Trakt watchlist")
+                }
+
+                watchlistRepository.removeFromWatchlist(item.mediaType, item.id)
+
                 // Optimistic update - remove from local state immediately
                 val updatedItems = _uiState.value.items.filter { it.id != item.id || it.mediaType != item.mediaType }
                 _uiState.value = _uiState.value.copy(
@@ -176,10 +183,6 @@ class WatchlistViewModel @Inject constructor(
                     toastMessage = "Removed from watchlist",
                     toastType = ToastType.SUCCESS
                 )
-                // Then sync to backend
-                watchlistRepository.removeFromWatchlist(item.mediaType, item.id)
-                // Also remove from Trakt if connected
-                runCatching { traktRepository.removeFromWatchlist(item.mediaType, item.id) }
                 runCatching { cloudSyncRepository.pushToCloud() }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -198,18 +201,26 @@ class WatchlistViewModel @Inject constructor(
         if (traktSyncInFlight) return true
         traktSyncInFlight = true
         return try {
-            val (hasTraktAuth, traktItems) = traktRepository.getWatchlistWithAuthState()
+            val (hasTraktAuth, syncResult) = traktRepository.getWatchlistSyncResultWithAuthState()
             if (!hasTraktAuth) {
                 false
             } else {
-                watchlistRepository.clearWatchlistCache()
-                val orderedTraktItems = traktItems.watchlistDisplayOrder()
-                _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
-                fetchLogos(orderedTraktItems)
+                val traktItems = syncResult?.items.orEmpty()
+                val rawCount = syncResult?.rawCount ?: 0
+                if (traktItems.isNotEmpty() || rawCount == 0) {
+                    watchlistRepository.clearWatchlistCache()
+                    val orderedTraktItems = traktItems.watchlistDisplayOrder()
+                    _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
+                    fetchLogos(orderedTraktItems)
 
-                watchlistRepository.syncFromTraktOrder(orderedTraktItems)
-                _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
-                runCatching { cloudSyncRepository.pushToCloud() }
+                    watchlistRepository.syncFromTraktOrder(orderedTraktItems)
+                    _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
+                    runCatching { cloudSyncRepository.pushToCloud() }
+                } else {
+                    val cachedItems = watchlistRepository.refreshWatchlistItems().watchlistDisplayOrder()
+                    _uiState.value = WatchlistUiState(isLoading = false, items = cachedItems)
+                    fetchLogos(cachedItems)
+                }
                 true
             }
         } catch (_: Exception) {

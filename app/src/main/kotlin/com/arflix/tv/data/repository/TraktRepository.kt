@@ -2120,18 +2120,33 @@ class TraktRepository @Inject constructor(
 
     // ========== Watchlist ==========
 
+    data class WatchlistSyncResult(
+        val items: List<MediaItem>,
+        val rawCount: Int
+    )
+
     suspend fun getWatchlist(): List<MediaItem> {
         return getWatchlistWithAuthState().second
     }
 
     suspend fun getWatchlistWithAuthState(): Pair<Boolean, List<MediaItem>> {
-        val auth = getAuthHeader() ?: return false to emptyList()
-        val items = getWatchlistFromTrakt(auth)
-        return true to items
+        val result = getWatchlistSyncResultWithAuthState()
+        return result.first to result.second?.items.orEmpty()
+    }
+
+    suspend fun getWatchlistSyncResultWithAuthState(): Pair<Boolean, WatchlistSyncResult?> {
+        val auth = getAuthHeader() ?: return false to null
+        val watchlist = fetchAllWatchlistItems(auth)
+        val items = hydrateWatchlistItems(watchlist)
+        return true to WatchlistSyncResult(items = items, rawCount = watchlist.size)
     }
 
     private suspend fun getWatchlistFromTrakt(auth: String): List<MediaItem> {
         val watchlist = fetchAllWatchlistItems(auth)
+        return hydrateWatchlistItems(watchlist)
+    }
+
+    private suspend fun hydrateWatchlistItems(watchlist: List<TraktWatchlistItem>): List<MediaItem> {
         val semaphore = Semaphore(6)
         return coroutineScope {
             watchlist.mapIndexed { index, item ->
@@ -2147,19 +2162,30 @@ class TraktRepository @Inject constructor(
     }
 
     private suspend fun fetchAllWatchlistItems(auth: String): List<TraktWatchlistItem> {
-        val typedItems = fetchWatchlistItemsByType(auth, "movies") + fetchWatchlistItemsByType(auth, "shows")
-        if (typedItems.isNotEmpty()) {
-            return typedItems
+        val movieItems = fetchWatchlistItemsByType(auth, "movies")
+        val showItems = fetchWatchlistItemsByType(auth, "shows")
+        if (movieItems.complete && showItems.complete) {
+            return (movieItems.items + showItems.items)
                 .distinctBy { watchlistIdentity(it) }
                 .sortedByDescending { it.listedAt }
         }
 
-        return traktApi.getWatchlist(auth, clientId)
-            .sortedByDescending { it.listedAt }
-            .distinctBy { watchlistIdentity(it) }
+        val fallback = fetchWatchlistItemsFallback(auth)
+        if (fallback.complete) {
+            return fallback.items
+                .sortedByDescending { it.listedAt }
+                .distinctBy { watchlistIdentity(it) }
+        }
+
+        throw IllegalStateException("Incomplete Trakt watchlist fetch")
     }
 
-    private suspend fun fetchWatchlistItemsByType(auth: String, type: String): List<TraktWatchlistItem> {
+    private data class WatchlistFetchResult(
+        val items: List<TraktWatchlistItem>,
+        val complete: Boolean
+    )
+
+    private suspend fun fetchWatchlistItemsByType(auth: String, type: String): WatchlistFetchResult {
         val all = mutableListOf<TraktWatchlistItem>()
         val seen = LinkedHashSet<String>()
         val limit = 100
@@ -2175,11 +2201,11 @@ class TraktRepository @Inject constructor(
                     limit = limit
                 )
             } catch (_: Exception) {
-                break
+                return WatchlistFetchResult(all, complete = false)
             }
 
             if (!response.isSuccessful) {
-                break
+                return WatchlistFetchResult(all, complete = false)
             }
 
             val pageItems = response.body().orEmpty()
@@ -2198,7 +2224,48 @@ class TraktRepository @Inject constructor(
             page += 1
         }
 
-        return all
+        return WatchlistFetchResult(all, complete = true)
+    }
+
+    private suspend fun fetchWatchlistItemsFallback(auth: String): WatchlistFetchResult {
+        val all = mutableListOf<TraktWatchlistItem>()
+        val seen = LinkedHashSet<String>()
+        val limit = 100
+        var page = 1
+
+        while (true) {
+            val response = try {
+                traktApi.getWatchlistPage(
+                    auth = auth,
+                    clientId = clientId,
+                    page = page,
+                    limit = limit
+                )
+            } catch (_: Exception) {
+                return WatchlistFetchResult(all, complete = false)
+            }
+
+            if (!response.isSuccessful) {
+                return WatchlistFetchResult(all, complete = false)
+            }
+
+            val pageItems = response.body().orEmpty()
+            pageItems.forEach { item ->
+                val key = watchlistIdentity(item)
+                if (seen.add(key)) all.add(item)
+            }
+
+            val totalPages = response.headers()["X-Pagination-Page-Count"]?.toIntOrNull()
+            val hasMorePages = if (totalPages != null) {
+                page < totalPages
+            } else {
+                pageItems.size >= limit
+            }
+            if (!hasMorePages) break
+            page += 1
+        }
+
+        return WatchlistFetchResult(all, complete = true)
     }
 
     private suspend fun mapWatchlistItemFast(item: TraktWatchlistItem): MediaItem? {
@@ -2261,6 +2328,7 @@ class TraktRepository @Inject constructor(
             item.type,
             ids?.trakt?.let { "trakt:$it" },
             ids?.tmdb?.let { "tmdb:$it" },
+            ids?.tvdb?.let { "tvdb:$it" },
             ids?.imdb?.takeIf { it.isNotBlank() }?.let { "imdb:$it" }
         ).joinToString(":").ifBlank { "${item.type}:${item.rank}:${item.listedAt}" }
     }
@@ -2321,11 +2389,13 @@ class TraktRepository @Inject constructor(
         val exactIdMatches = mutableListOf<TmdbMovieDetails>()
         for (id in ids) {
             val details = runCatching { tmdbApi.getMovieDetails(id, Constants.TMDB_API_KEY) }.getOrNull() ?: continue
-            val sameTitle = isSameWatchlistTitle(movie.title, details.title)
-            if (sameTitle && movie.year != null && yearCompatible(movie.year, details.releaseDate?.take(4)?.toIntOrNull())) {
+            val sameTitle = isSameWatchlistTitle(movie.title, details.title) ||
+                details.originalTitle?.let { isSameWatchlistTitle(movie.title, it) } == true
+            val sameYear = yearCompatible(movie.year, details.releaseDate?.take(4)?.toIntOrNull())
+            if (id == movie.ids.tmdb && (sameTitle || sameYear)) {
                 return details
             }
-            if (movie.year != null && yearCompatible(movie.year, details.releaseDate?.take(4)?.toIntOrNull())) {
+            if (sameTitle && sameYear) {
                 return details
             }
             if (sameTitle) exactIdMatches.add(details)
@@ -2375,11 +2445,13 @@ class TraktRepository @Inject constructor(
         val exactIdMatches = mutableListOf<TmdbTvDetails>()
         for (id in ids) {
             val details = runCatching { tmdbApi.getTvDetails(id, Constants.TMDB_API_KEY) }.getOrNull() ?: continue
-            val sameTitle = isSameWatchlistTitle(show.title, details.name)
-            if (sameTitle && show.year != null && yearCompatible(show.year, details.firstAirDate?.take(4)?.toIntOrNull())) {
+            val sameTitle = isSameWatchlistTitle(show.title, details.name) ||
+                details.originalName?.let { isSameWatchlistTitle(show.title, it) } == true
+            val sameYear = yearCompatible(show.year, details.firstAirDate?.take(4)?.toIntOrNull())
+            if (id == show.ids.tmdb && (sameTitle || sameYear)) {
                 return details
             }
-            if (show.year != null && yearCompatible(show.year, details.firstAirDate?.take(4)?.toIntOrNull())) {
+            if (sameTitle && sameYear) {
                 return details
             }
             if (sameTitle) exactIdMatches.add(details)
@@ -2421,12 +2493,27 @@ class TraktRepository @Inject constructor(
         if (year == null && !allowTitleOnly) return null
 
         return runCatching {
-            tmdbApi.searchMulti(Constants.TMDB_API_KEY, title, page = 1).results
+            val results = when (mediaType) {
+                MediaType.MOVIE -> tmdbApi.searchMovies(
+                    apiKey = Constants.TMDB_API_KEY,
+                    query = title,
+                    page = 1,
+                    primaryReleaseYear = year,
+                    year = year
+                ).results
+                MediaType.TV -> tmdbApi.searchTv(
+                    apiKey = Constants.TMDB_API_KEY,
+                    query = title,
+                    page = 1,
+                    firstAirDateYear = year
+                ).results
+            }
+            results
                 .asSequence()
                 .filter { result ->
                     when (mediaType) {
-                        MediaType.MOVIE -> result.mediaType == "movie"
-                        MediaType.TV -> result.mediaType == "tv"
+                        MediaType.MOVIE -> result.title != null
+                        MediaType.TV -> result.name != null
                     }
                 }
                 .mapNotNull { result ->
@@ -2434,6 +2521,7 @@ class TraktRepository @Inject constructor(
                         traktTitle = title,
                         traktYear = year,
                         candidateTitle = result.title ?: result.name ?: "",
+                        candidateOriginalTitle = result.originalTitle ?: result.originalName,
                         candidateYear = (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull(),
                         popularity = result.popularity,
                         voteCount = result.voteCount,
@@ -2480,12 +2568,15 @@ class TraktRepository @Inject constructor(
         traktTitle: String,
         traktYear: Int?,
         candidateTitle: String,
+        candidateOriginalTitle: String?,
         candidateYear: Int?,
         popularity: Float,
         voteCount: Int,
         allowTitleOnly: Boolean = false
     ): Float {
-        if (!isSameWatchlistTitle(traktTitle, candidateTitle)) return 0f
+        val sameTitle = isSameWatchlistTitle(traktTitle, candidateTitle) ||
+            candidateOriginalTitle?.let { isSameWatchlistTitle(traktTitle, it) } == true
+        if (!sameTitle) return 0f
 
         var score = 1000f
         if (traktYear != null && candidateYear != null) {
@@ -2521,34 +2612,40 @@ class TraktRepository @Inject constructor(
         return if (first > second) first - second else second - first
     }
 
-    suspend fun addToWatchlist(mediaType: MediaType, tmdbId: Int) {
-        val auth = getAuthHeader() ?: return
-        try {
+    suspend fun addToWatchlist(mediaType: MediaType, tmdbId: Int): Boolean {
+        val auth = getAuthHeader() ?: return false
+        return try {
             val body = if (mediaType == MediaType.MOVIE) {
                 TraktWatchlistBody(movies = listOf(TraktMovieId(TraktIds(tmdb = tmdbId))))
             } else {
                 TraktWatchlistBody(shows = listOf(TraktShowId(TraktIds(tmdb = tmdbId))))
             }
             traktApi.addToWatchlist(auth, clientId, "2", body)
-        } catch (e: Exception) { }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
-    suspend fun removeFromWatchlist(mediaType: MediaType, tmdbId: Int) {
-        val auth = getAuthHeader() ?: return
-        try {
+    suspend fun removeFromWatchlist(mediaType: MediaType, tmdbId: Int): Boolean {
+        val auth = getAuthHeader() ?: return false
+        return try {
             val body = if (mediaType == MediaType.MOVIE) {
                 TraktWatchlistBody(movies = listOf(TraktMovieId(TraktIds(tmdb = tmdbId))))
             } else {
                 TraktWatchlistBody(shows = listOf(TraktShowId(TraktIds(tmdb = tmdbId))))
             }
             traktApi.removeFromWatchlist(auth, clientId, "2", body)
-        } catch (e: Exception) { }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     suspend fun checkInWatchlist(mediaType: MediaType, tmdbId: Int): Boolean {
         val auth = getAuthHeader() ?: return false
         return try {
-            val watchlist = traktApi.getWatchlist(auth, clientId)
+            val watchlist = fetchAllWatchlistItems(auth)
             watchlist.any { item ->
                 when (item.type) {
                     "movie" -> item.movie?.ids?.tmdb == tmdbId

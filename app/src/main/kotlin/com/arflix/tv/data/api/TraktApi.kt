@@ -310,6 +310,17 @@ interface TraktApi {
         @Query("extended") extended: String = "full"
     ): List<TraktWatchlistItem>
 
+    @GET("users/me/watchlist")
+    suspend fun getWatchlistPage(
+        @Header("Authorization") auth: String,
+        @Header("trakt-api-key") clientId: String,
+        @Header("trakt-api-version") version: String = "2",
+        @Query("type") type: String? = null,
+        @Query("extended") extended: String = "full",
+        @Query("page") page: Int,
+        @Query("limit") limit: Int
+    ): Response<List<TraktWatchlistItem>>
+
     @GET("users/me/watchlist/{type}/added")
     suspend fun getWatchlistAddedPage(
         @Header("Authorization") auth: String,

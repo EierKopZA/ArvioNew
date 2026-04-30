@@ -3368,10 +3368,17 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val isInWatchlist = watchlistRepository.isInWatchlist(item.mediaType, item.id)
+                val traktConnected = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
                 if (isInWatchlist) {
+                    if (traktConnected && !traktRepository.removeFromWatchlist(item.mediaType, item.id)) {
+                        throw IllegalStateException("Failed to remove from Trakt watchlist")
+                    }
                     watchlistRepository.removeFromWatchlist(item.mediaType, item.id)
                 } else {
-                    watchlistRepository.addToWatchlist(item.mediaType, item.id)
+                    if (traktConnected && !traktRepository.addToWatchlist(item.mediaType, item.id)) {
+                        throw IllegalStateException("Failed to add to Trakt watchlist")
+                    }
+                    watchlistRepository.addToWatchlist(item.mediaType, item.id, item)
                 }
                 runCatching { cloudSyncRepository.pushToCloud() }
                 _uiState.value = _uiState.value.copy(

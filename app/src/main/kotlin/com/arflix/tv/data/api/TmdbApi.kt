@@ -161,6 +161,25 @@ interface TmdbApi {
         @Query("page") page: Int = 1
     ): TmdbListResponse
 
+    @GET("search/movie")
+    suspend fun searchMovies(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("primary_release_year") primaryReleaseYear: Int? = null,
+        @Query("year") year: Int? = null
+    ): TmdbListResponse
+
+    @GET("search/tv")
+    suspend fun searchTv(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("first_air_date_year") firstAirDateYear: Int? = null
+    ): TmdbListResponse
+
     @GET("find/{external_id}")
     suspend fun findByExternalId(
         @Path("external_id") externalId: String,
@@ -203,6 +222,8 @@ data class TmdbMediaItem(
     val id: Int = 0,
     val title: String? = null,
     val name: String? = null,
+    @SerializedName("original_title") val originalTitle: String? = null,
+    @SerializedName("original_name") val originalName: String? = null,
     val overview: String? = null,
     @SerializedName("release_date") val releaseDate: String? = null,
     @SerializedName("first_air_date") val firstAirDate: String? = null,
@@ -221,6 +242,7 @@ data class TmdbMediaItem(
 data class TmdbMovieDetails(
     val id: Int = 0,
     val title: String = "",
+    @SerializedName("original_title") val originalTitle: String? = null,
     val overview: String? = null,
     @SerializedName("release_date") val releaseDate: String? = null,
     @SerializedName("poster_path") val posterPath: String? = null,
@@ -237,6 +259,7 @@ data class TmdbMovieDetails(
 data class TmdbTvDetails(
     val id: Int = 0,
     val name: String = "",
+    @SerializedName("original_name") val originalName: String? = null,
     val overview: String? = null,
     @SerializedName("first_air_date") val firstAirDate: String? = null,
     @SerializedName("poster_path") val posterPath: String? = null,

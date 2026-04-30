@@ -865,15 +865,18 @@ class DetailsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
+                val traktConnected = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
                 if (newInWatchlist) {
+                    if (traktConnected && !traktRepository.addToWatchlist(currentMediaType, currentMediaId)) {
+                        throw IllegalStateException("Failed to add to Trakt watchlist")
+                    }
                     // Pass the full MediaItem so it appears instantly in watchlist
                     watchlistRepository.addToWatchlist(currentMediaType, currentMediaId, currentItem)
-                    // Also add to Trakt if connected
-                    runCatching { traktRepository.addToWatchlist(currentMediaType, currentMediaId) }
                 } else {
+                    if (traktConnected && !traktRepository.removeFromWatchlist(currentMediaType, currentMediaId)) {
+                        throw IllegalStateException("Failed to remove from Trakt watchlist")
+                    }
                     watchlistRepository.removeFromWatchlist(currentMediaType, currentMediaId)
-                    // Also remove from Trakt if connected
-                    runCatching { traktRepository.removeFromWatchlist(currentMediaType, currentMediaId) }
                 }
                 runCatching { cloudSyncRepository.pushToCloud() }
 

@@ -136,7 +136,8 @@ class WatchlistRepository @Inject constructor(
         // Update in-memory cache
         cacheMutex.withLock {
             keyCache.add(key)
-            if (mediaItem != null && itemsCache.none { it.id == tmdbId && it.mediaType == mediaType }) {
+            itemsCache.removeAll { it.id == tmdbId && it.mediaType == mediaType }
+            if (mediaItem != null) {
                 itemsCache.add(0, mediaItem)
                 _watchlistItems.value = itemsCache.toList()
             }
@@ -348,13 +349,11 @@ class WatchlistRepository @Inject constructor(
      * Save watchlist items to DataStore
      */
     private suspend fun saveWatchlist(items: List<LocalWatchlistItem>) {
-        try {
-            val json = gson.toJson(items)
-            context.traktDataStore.edit { prefs ->
-                prefs[watchlistKey()] = json
-            }
-            invalidationBus.markDirty(CloudSyncScope.WATCHLIST, profileManager.getProfileIdSync(), "save watchlist")
-        } catch (_: Exception) {}
+        val json = gson.toJson(items)
+        context.traktDataStore.edit { prefs ->
+            prefs[watchlistKey()] = json
+        }
+        invalidationBus.markDirty(CloudSyncScope.WATCHLIST, profileManager.getProfileIdSync(), "save watchlist")
     }
 
     /**
