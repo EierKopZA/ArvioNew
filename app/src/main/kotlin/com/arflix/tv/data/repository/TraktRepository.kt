@@ -1150,11 +1150,12 @@ class TraktRepository @Inject constructor(
             // Fetch actively paused playback items (sync/playback).
             val processedKeys = mutableSetOf<String>()
             var playbackFetched = false
+            var watchedProgressFetched = false
             try {
                 val playbackItems = playbackDeferred.await()
                 playbackFetched = true
                 for (item in playbackItems) {
-                    if (item.progress < Constants.MIN_PROGRESS_THRESHOLD || item.progress > Constants.WATCHED_THRESHOLD) continue
+                    if (item.progress < Constants.MIN_PROGRESS_THRESHOLD || item.progress >= Constants.WATCHED_THRESHOLD) continue
 
                     if (item.type == "movie") {
                         val movie = item.movie ?: continue
@@ -1302,6 +1303,7 @@ class TraktRepository @Inject constructor(
                         processedKeys.add(showKey)
                     }
                 }
+                watchedProgressFetched = true
             } catch (e: Exception) {
                 System.err.println("TraktRepo:getCW: watched progress failed: ${e.message}")
             }
@@ -1341,8 +1343,9 @@ class TraktRepository @Inject constructor(
             }
 
             val topCandidates = filteredCandidates.sortedByDescending { it.lastActivityAt }.take(Constants.MAX_CONTINUE_WATCHING)
-            if (topCandidates.isEmpty() && playbackFetched) {
+            if (topCandidates.isEmpty() && playbackFetched && watchedProgressFetched) {
                 cachedContinueWatching = emptyList()
+                cachedContinueWatchingProfileId = requestProfileId
                 lastContinueWatchingFetch = System.currentTimeMillis()
                 persistContinueWatchingCache(emptyList())
                 return@coroutineScope emptyList()

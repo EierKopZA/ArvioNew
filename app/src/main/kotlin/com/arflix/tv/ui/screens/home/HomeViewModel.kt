@@ -243,10 +243,10 @@ class HomeViewModel @Inject constructor(
         localItems: List<ContinueWatchingItem>,
         historyItems: List<ContinueWatchingItem>
     ): List<ContinueWatchingItem> {
-        val nowMs = System.currentTimeMillis()
-        val localOverrideWindowMs = 15 * 60_000L
-        val freshestLocalByShow = (localItems + historyItems)
-            .groupBy(::continueWatchingShowKey)
+        val freshestLocalByExactEpisode = (localItems + historyItems)
+            .groupBy { item ->
+                "${item.mediaType}:${item.id}:${item.season ?: -1}:${item.episode ?: -1}"
+            }
             .mapValues { (_, candidates) ->
                 candidates.maxWithOrNull(
                     compareBy<ContinueWatchingItem> { it.updatedAtMs }
@@ -255,53 +255,22 @@ class HomeViewModel @Inject constructor(
                 )
             }
 
-        val merged = mutableListOf<ContinueWatchingItem>()
-        val seenShowKeys = mutableSetOf<String>()
-
-        traktItems.forEach { traktItem ->
-            val showKey = continueWatchingShowKey(traktItem)
-            val freshestLocal = freshestLocalByShow[showKey]
-            val sameEpisode = freshestLocal != null &&
-                freshestLocal.mediaType == traktItem.mediaType &&
-                freshestLocal.id == traktItem.id &&
-                freshestLocal.season == traktItem.season &&
-                freshestLocal.episode == traktItem.episode
-            val recentLocalOverride = freshestLocal != null &&
-                freshestLocal.updatedAtMs > 0L &&
-                nowMs - freshestLocal.updatedAtMs <= localOverrideWindowMs
-
-            val chosen = when {
-                sameEpisode && freshestLocal != null ->
-                    mergeContinueWatchingVisuals(
-                        preferred = freshestLocal.copy(
-                            resumePositionSeconds = maxOf(traktItem.resumePositionSeconds, freshestLocal.resumePositionSeconds),
-                            durationSeconds = maxOf(traktItem.durationSeconds, freshestLocal.durationSeconds),
-                            progress = maxOf(traktItem.progress, freshestLocal.progress)
-                        ),
-                        fallback = traktItem
-                    )
-                recentLocalOverride && freshestLocal != null ->
-                    mergeContinueWatchingVisuals(freshestLocal, traktItem)
-                else -> traktItem
+        return traktItems.map { traktItem ->
+            val exactKey = "${traktItem.mediaType}:${traktItem.id}:${traktItem.season ?: -1}:${traktItem.episode ?: -1}"
+            val local = freshestLocalByExactEpisode[exactKey]
+            if (local == null) {
+                traktItem
+            } else {
+                mergeContinueWatchingVisuals(
+                    preferred = traktItem.copy(
+                        resumePositionSeconds = maxOf(traktItem.resumePositionSeconds, local.resumePositionSeconds),
+                        durationSeconds = maxOf(traktItem.durationSeconds, local.durationSeconds),
+                        progress = maxOf(traktItem.progress, local.progress)
+                    ),
+                    fallback = local
+                )
             }
-
-            merged += chosen
-            seenShowKeys += showKey
         }
-
-        freshestLocalByShow
-            .asSequence()
-            .filter { (showKey, item) ->
-                item != null &&
-                    showKey !in seenShowKeys &&
-                    item.updatedAtMs > 0L &&
-                    nowMs - item.updatedAtMs <= localOverrideWindowMs
-            }
-            .mapNotNull { (_, item) -> item }
-            .sortedByDescending { it.updatedAtMs }
-            .forEach { merged += it }
-
-        return merged
     }
 
     private fun overviewLooksTruncated(overview: String): Boolean {
@@ -2741,13 +2710,7 @@ class HomeViewModel @Inject constructor(
     private suspend fun preloadStartupContinueWatchingItems(): List<ContinueWatchingItem> {
         val isTraktAuthenticated = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
         val items = if (isTraktAuthenticated) {
-            val localItems = runCatching { traktRepository.getLocalContinueWatching() }.getOrDefault(emptyList())
-            val historyItems = loadContinueWatchingFromHistoryStable()
-            mergeTraktAndRecentLocalContinueWatching(
-                traktItems = emptyList(),
-                localItems = localItems,
-                historyItems = historyItems
-            )
+            runCatching { traktRepository.preloadContinueWatchingCache() }.getOrDefault(emptyList())
         } else {
             val historyItems = loadContinueWatchingFromHistoryStable()
             if (historyItems.isNotEmpty()) {

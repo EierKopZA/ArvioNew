@@ -247,6 +247,7 @@ interface SupabaseApi {
         @Header("Authorization") auth: String,
         @Header("apikey") apiKey: String = Constants.SUPABASE_ANON_KEY,
         @Query("user_id") userId: String,
+        @Query("profile_id") profileId: String? = null,
         @Query("select") select: String = "*"
     ): List<SyncStateRecord>
 
@@ -394,6 +395,7 @@ data class EpisodeProgressRecord(
  */
 data class SyncStateRecord(
     @SerializedName("user_id") val userId: String,
+    @SerializedName("profile_id") val profileId: String? = null,
     @SerializedName("last_sync_at") val lastSyncAt: String? = null,
     @SerializedName("last_full_sync_at") val lastFullSyncAt: String? = null,
     @SerializedName("last_trakt_activities") val lastTraktActivities: String? = null, // JSON string (legacy)

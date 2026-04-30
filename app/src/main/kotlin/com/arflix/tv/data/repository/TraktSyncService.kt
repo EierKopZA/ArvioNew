@@ -330,7 +330,11 @@ class TraktSyncService @Inject constructor(
             var syncState: SyncStateRecord? = null
             try {
                 val syncStates = executeSupabaseCall("get sync state") { auth ->
-                    supabaseApi.getSyncState(auth, userId = "eq.$safeUserId")
+                    supabaseApi.getSyncState(
+                        auth,
+                        userId = "eq.$safeUserId",
+                        profileId = "eq.${activeProfileId()}"
+                    )
                 }
                 syncState = syncStates.firstOrNull()
             } catch (e: Exception) {
@@ -414,7 +418,12 @@ class TraktSyncService @Inject constructor(
                     message = "Syncing playback progress..."
                 )
                 val playbackItems = fetchAllPlaybackProgress()
-                val progressRecords = buildWatchHistoryFromPlayback(safeUserId, playbackItems, completionThreshold, "trakt")
+                val progressRecords = buildWatchHistoryFromPlayback(
+                    safeUserId,
+                    playbackItems,
+                    completionThreshold,
+                    profileHistorySource("trakt")
+                )
 
                 progressRecords.chunked(100).forEach { chunk ->
                     chunk.forEach { record ->
@@ -992,7 +1001,11 @@ class TraktSyncService @Inject constructor(
 
             // PostgREST requires "eq." prefix for equality filtering
             val syncStates = executeSupabaseCall("get sync state (last sync)") { auth ->
-                supabaseApi.getSyncState(auth, userId = "eq.$userId")
+                supabaseApi.getSyncState(
+                    auth,
+                    userId = "eq.$userId",
+                    profileId = "eq.${activeProfileId()}"
+                )
             }
             syncStates.firstOrNull()?.lastSyncAt
         } catch (e: Exception) {
@@ -1680,6 +1693,7 @@ class TraktSyncService @Inject constructor(
     ) {
         val record = SyncStateRecord(
             userId = userId,
+            profileId = activeProfileId(),
             lastSyncAt = lastSyncAt,
             lastFullSyncAt = lastFullSyncAt,
             lastTraktActivities = lastTraktActivities,
