@@ -24,6 +24,10 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.arflix.tv.data.api.InAppYouTubeExtractor
 import com.arflix.tv.data.api.YoutubeChunkedDataSourceFactory
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -33,6 +37,12 @@ import kotlinx.coroutines.withContext
  * Waits [delayMs] before resolving and playing (shows static backdrop first).
  * Uses InAppYouTubeExtractor to get direct googlevideo.com CDN URLs.
  */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface TrailerPlayerEntryPoint {
+    fun inAppYouTubeExtractor(): InAppYouTubeExtractor
+}
+
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun TrailerPlayer(
@@ -46,6 +56,15 @@ fun TrailerPlayer(
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var audioUrl by remember { mutableStateOf<String?>(null) }
 
+    // Get singleton extractor from DI
+    val entryPoint = remember {
+        EntryPointAccessors.fromApplication(
+            context,
+            TrailerPlayerEntryPoint::class.java
+        )
+    }
+    val extractor = remember { entryPoint.inAppYouTubeExtractor() }
+
     // Delay, then extract YouTube direct URL
     LaunchedEffect(youtubeKey) {
         shouldPlay = false
@@ -54,7 +73,6 @@ fun TrailerPlayer(
         delay(delayMs)
         withContext(Dispatchers.IO) {
             try {
-                val extractor = InAppYouTubeExtractor()
                 val source = extractor.extractPlaybackSource("https://www.youtube.com/watch?v=$youtubeKey")
                 if (source != null) {
                     videoUrl = source.videoUrl
