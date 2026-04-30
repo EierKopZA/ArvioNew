@@ -329,10 +329,10 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Crunchyroll",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "file:///android_asset/service_cards/crunchyroll.jpg",
+            coverImageUrl = "https://mir-s3-cdn-cf.behance.net/project_modules/fs_webp/380e75223389683.67f7c1dc0669a.png",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
-            heroVideoUrl = null,
+            heroVideoUrl = "${VIDEO_BASE}crunchyroll.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.cru_movie"),
                 source(addonId = "aio-metadata", type = "series", catalogId = "streaming.cru_series"),
