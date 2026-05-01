@@ -1613,6 +1613,38 @@ private fun QualityFiltersModal(
     focusedActionIndex: Int = -1,
     onFocusedActionIndexChange: (Int) -> Unit = {}
 ) {
+    val modalFocusRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    val hasFilters = filters.isNotEmpty()
+    var isFooterFocused by remember(filters) { mutableStateOf(!hasFilters) }
+    var selectedFooterAction by remember { mutableIntStateOf(1) } // 0 = Close, 1 = Add
+    var selectedFilterIndex by remember(filters, focusedFilterIndex) {
+        mutableIntStateOf(
+            if (hasFilters) focusedFilterIndex.coerceIn(0, filters.lastIndex).takeIf { it >= 0 } ?: 0 else -1
+        )
+    }
+    var selectedFilterAction by remember(filters, focusedActionIndex) {
+        mutableIntStateOf(
+            if (hasFilters) focusedActionIndex.coerceIn(0, 2).takeIf { it >= 0 } ?: 0 else 0
+        )
+    }
+
+    LaunchedEffect(hasFilters) {
+        modalFocusRequester.requestFocus()
+        if (!hasFilters) {
+            isFooterFocused = true
+            selectedFilterIndex = -1
+        } else if (selectedFilterIndex !in filters.indices) {
+            selectedFilterIndex = 0
+        }
+    }
+
+    LaunchedEffect(selectedFilterIndex, isFooterFocused, hasFilters) {
+        if (hasFilters && !isFooterFocused && selectedFilterIndex in filters.indices) {
+            listState.animateScrollToItem(selectedFilterIndex)
+        }
+    }
+
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(
@@ -1628,6 +1660,67 @@ private fun QualityFiltersModal(
                     .heightIn(max = 760.dp)
                     .background(BackgroundElevated, RoundedCornerShape(16.dp))
                     .padding(24.dp)
+                    .focusRequester(modalFocusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Back, Key.Escape -> {
+                                onDismiss()
+                                true
+                            }
+                            Key.DirectionUp -> {
+                                if (isFooterFocused) {
+                                    if (hasFilters) isFooterFocused = false
+                                } else if (selectedFilterIndex > 0) {
+                                    selectedFilterIndex--
+                                }
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                if (!isFooterFocused) {
+                                    if (selectedFilterIndex < filters.lastIndex) {
+                                        selectedFilterIndex++
+                                    } else {
+                                        isFooterFocused = true
+                                    }
+                                }
+                                true
+                            }
+                            Key.DirectionLeft -> {
+                                if (isFooterFocused) {
+                                    if (selectedFooterAction > 0) selectedFooterAction--
+                                } else if (selectedFilterAction > 0) {
+                                    selectedFilterAction--
+                                }
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                if (isFooterFocused) {
+                                    if (selectedFooterAction < 1) selectedFooterAction++
+                                } else if (selectedFilterAction < 2) {
+                                    selectedFilterAction++
+                                }
+                                true
+                            }
+                            Key.Enter, Key.DirectionCenter -> {
+                                if (isFooterFocused || !hasFilters) {
+                                    if (selectedFooterAction == 0) onDismiss() else onAdd()
+                                } else {
+                                    val selectedFilter = filters.getOrNull(selectedFilterIndex)
+                                    if (selectedFilter != null) {
+                                        when (selectedFilterAction) {
+                                            0 -> onToggle(selectedFilter.id)
+                                            1 -> onEdit(selectedFilter)
+                                            2 -> onDelete(selectedFilter.id)
+                                        }
+                                    }
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
             ) {
                 Text(
                     text = "Quality Regex Filters",
@@ -1651,6 +1744,7 @@ private fun QualityFiltersModal(
                     Spacer(modifier = Modifier.height(16.dp))
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 460.dp)
@@ -1682,19 +1776,19 @@ private fun QualityFiltersModal(
                                 }
                                 CatalogActionChip(
                                     icon = if (filter.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
-                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 0,
+                                    isFocused = !isFooterFocused && selectedFilterIndex == index && selectedFilterAction == 0,
                                     onClick = { onToggle(filter.id) }
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 CatalogActionChip(
                                     icon = Icons.Default.Edit,
-                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 1,
+                                    isFocused = !isFooterFocused && selectedFilterIndex == index && selectedFilterAction == 1,
                                     onClick = { onEdit(filter) }
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 CatalogActionChip(
                                     icon = Icons.Default.Delete,
-                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 2,
+                                    isFocused = !isFooterFocused && selectedFilterIndex == index && selectedFilterAction == 2,
                                     isDestructive = true,
                                     onClick = { onDelete(filter.id) }
                                 )
@@ -1713,12 +1807,14 @@ private fun QualityFiltersModal(
                         label = "Close",
                         enabled = true,
                         onClick = onDismiss,
+                        isFocused = isFooterFocused && selectedFooterAction == 0,
                         modifier = Modifier.weight(1f)
                     )
                     SettingsChip(
                         label = "Add Filter",
                         enabled = true,
                         onClick = onAdd,
+                        isFocused = isFooterFocused && selectedFooterAction == 1,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1732,12 +1828,24 @@ private fun SettingsChip(
     label: String,
     enabled: Boolean,
     onClick: () -> Unit,
+    isFocused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(if (enabled) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f))
+            .background(
+                when {
+                    !enabled -> Color.White.copy(alpha = 0.06f)
+                    isFocused -> Color.White
+                    else -> Color.White.copy(alpha = 0.12f)
+                }
+            )
+            .border(
+                width = if (isFocused) 1.dp else 0.dp,
+                color = if (isFocused) Color.White else Color.Transparent,
+                shape = RoundedCornerShape(10.dp)
+            )
             .clickable(enabled = enabled) { onClick() }
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center
@@ -1745,7 +1853,11 @@ private fun SettingsChip(
         Text(
             text = label,
             style = ArflixTypography.button,
-            color = if (enabled) TextPrimary else TextSecondary
+            color = when {
+                !enabled -> TextSecondary
+                isFocused -> Color.Black
+                else -> TextPrimary
+            }
         )
     }
 }
