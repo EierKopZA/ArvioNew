@@ -3,6 +3,7 @@
 package com.arflix.tv.ui.screens.player
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -127,6 +128,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.arflix.tv.ArflixApplication
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.StreamSource
@@ -201,6 +203,11 @@ fun PlayerScreen(
     val coroutineScope = rememberCoroutineScope()
     val deviceType = LocalDeviceType.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isConstrainedPlaybackDevice = remember(context, deviceType) {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        deviceType == com.arflix.tv.util.DeviceType.TV &&
+            (activityManager?.isLowRamDevice == true || (activityManager?.memoryClass ?: Int.MAX_VALUE) <= 384)
+    }
 
     // Keep playback in landscape while the player is visible, regardless of the
     // device's auto-rotate lock. Restore the app's prior orientation afterward.
@@ -480,7 +487,12 @@ fun PlayerScreen(
     // ExoPlayer - tuned for both small and very large (70GB+) files.
     // Byte cap is authoritative (prioritize size over time) so high-bitrate streams
     // cannot exhaust memory on TV devices with limited heap (384-512 MB).
-    val exoPlayer = remember {
+    val exoPlayer = remember(isConstrainedPlaybackDevice) {
+        val targetBufferBytes = if (isConstrainedPlaybackDevice) {
+            48 * 1024 * 1024
+        } else {
+            80 * 1024 * 1024
+        }
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 12_000,    // minBufferMs
@@ -488,7 +500,7 @@ fun PlayerScreen(
                 500,       // bufferForPlaybackMs
                 2_000      // bufferForPlaybackAfterRebufferMs
             )
-            .setTargetBufferBytes(80 * 1024 * 1024)   // 80 MB hard cap
+            .setTargetBufferBytes(targetBufferBytes)
             .setPrioritizeTimeOverSizeThresholds(false) // byte cap is authoritative
             .setBackBuffer(3_000, false)                // minimal back buffer
             .build()
@@ -875,6 +887,7 @@ fun PlayerScreen(
             playbackIssueReported = false
             rebufferRecoverAttempted = false
             longRebufferCount = 0
+            ArflixApplication.trimImageMemory()
 
             // Match frame rate before touching playback so any display mode switch
             // happens up-front instead of mid-playback.

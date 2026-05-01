@@ -20,6 +20,7 @@ import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
+import coil.imageLoader
 import coil.memory.MemoryCache
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.repository.AuthRepository
@@ -198,15 +199,22 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         super.onTrimMemory(level)
         if (
             level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
-            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE
         ) {
-            appImageLoader?.memoryCache?.clear()
+            clearImageMemoryCaches()
         }
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
+        clearImageMemoryCaches()
+    }
+
+    private fun clearImageMemoryCaches() {
         appImageLoader?.memoryCache?.clear()
+        // Settings can replace Coil's global loader after DNS changes; clear the
+        // active loader too so memory-pressure callbacks always affect what UI uses.
+        runCatching { imageLoader.memoryCache?.clear() }
     }
 
     private fun isLowRamDevice(): Boolean {
@@ -263,6 +271,12 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     companion object {
         lateinit var instance: ArflixApplication
             private set
+
+        fun trimImageMemory() {
+            if (::instance.isInitialized) {
+                instance.clearImageMemoryCaches()
+            }
+        }
     }
 }
 

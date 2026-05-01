@@ -584,9 +584,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-    private val isLowRamDevice = activityManager.isLowRamDevice || activityManager.memoryClass <= 256
     private val isTvDevice = detectDeviceType(context) == DeviceType.TV
+    private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    private val isLowRamDevice =
+        activityManager.isLowRamDevice ||
+            activityManager.memoryClass <= 256 ||
+            (isTvDevice && activityManager.memoryClass <= 384)
     private val gson = com.google.gson.Gson()
 
     // Disk cache key for the home categories — profile-scoped so each profile gets
