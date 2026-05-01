@@ -2894,13 +2894,24 @@ private fun HomeViewportRailFocusOverlay(
     } else {
         usePosterCards
     }
-    val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
-    val cardAspectRatio = if (effectivePosterMode) 2f / 3f else 16f / 9f
+    val targetWidth = if (effectivePosterMode) 119.dp else 210.dp
+    val targetHeight = if (effectivePosterMode) 119.dp * (3f/2f) else 210.dp * (9f/16f)
+
+    val itemWidth by androidx.compose.animation.core.animateDpAsState(
+        targetValue = targetWidth,
+        animationSpec = tween(durationMillis = 180, easing = ArvioSkin.focus.easing),
+        label = "rail_focus_width"
+    )
+    val itemHeight by androidx.compose.animation.core.animateDpAsState(
+        targetValue = targetHeight,
+        animationSpec = tween(durationMillis = 180, easing = ArvioSkin.focus.easing),
+        label = "rail_focus_height"
+    )
+
     ArvioFocusableSurface(
         modifier = Modifier
             .padding(start = startPadding, top = 48.dp)
-            .width(itemWidth)
-            .aspectRatio(cardAspectRatio)
+            .size(width = itemWidth, height = itemHeight)
             .zIndex(8f),
         shape = rememberArvioCardShape(ArvioSkin.radius.md),
         backgroundColor = Color.Transparent,
