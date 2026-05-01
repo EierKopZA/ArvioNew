@@ -1217,8 +1217,9 @@ class PlayerViewModel @Inject constructor(
     /**
      * Select a stream for playback
      */
-    fun selectStream(stream: StreamSource) {
+    fun selectStream(stream: StreamSource, resumePositionMs: Long? = null) {
         viewModelScope.launch {
+            val requestedResumePosition = resumePositionMs?.coerceAtLeast(0L)
             var selectedOriginal = stream
             var resolvedStream = runCatching {
                 streamRepository.resolveStreamForPlayback(stream)
@@ -1264,6 +1265,7 @@ class PlayerViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 selectedStream = resolvedStream,
                 selectedStreamUrl = url,
+                savedPosition = requestedResumePosition ?: _uiState.value.savedPosition,
                 streamSelectionNonce = _uiState.value.streamSelectionNonce + 1
             )
 
@@ -2001,4 +2003,3 @@ class PlayerViewModel @Inject constructor(
         )
     }
 }
-
