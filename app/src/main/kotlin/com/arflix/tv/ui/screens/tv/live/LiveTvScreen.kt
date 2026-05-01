@@ -135,6 +135,7 @@ fun LiveTvScreen(
     currentProfile: Profile? = null,
     initialChannelId: String? = null,
     initialStreamUrl: String? = null,
+    onFullscreenChanged: (Boolean) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
@@ -347,6 +348,12 @@ fun LiveTvScreen(
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
     var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
+    LaunchedEffect(isFullScreen) {
+        onFullscreenChanged(isFullScreen)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onFullscreenChanged(false) }
+    }
     // Focus requesters for the three regions.
     val sidebarFocus = remember { FocusRequester() }
     val miniFocus = remember { FocusRequester() }
