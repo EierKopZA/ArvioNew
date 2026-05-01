@@ -1654,6 +1654,7 @@ private fun DetailsContent(
                 val hasDuration = item.duration.isNotEmpty() && item.duration != "0m"
                 val rating = item.imdbRating.ifEmpty { item.tmdbRating }
                 val ratingValue = parseRatingValue(rating)
+                val primaryNetworkLogo = item.primaryNetworkLogo?.takeIf { it.isNotBlank() }
                 val budgetText = budget?.trim()?.takeIf { it.isNotEmpty() && item.mediaType == MediaType.MOVIE }
                 val overviewMaxHeight = if (isCompactHeight) 68.dp else 72.dp
 
@@ -1699,6 +1700,19 @@ private fun DetailsContent(
                                 shadow = textShadow
                             ),
                             color = Color.White
+                        )
+                    }
+
+                    if (primaryNetworkLogo != null) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        AsyncImage(
+                            model = primaryNetworkLogo,
+                            imageLoader = metadataLogoImageLoader,
+                            contentDescription = "Primary streaming provider",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .height(16.dp)
+                                .width(52.dp)
                         )
                     }
 

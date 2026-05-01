@@ -185,6 +185,7 @@ class DetailsViewModel @Inject constructor(
     @Volatile private var initialLoadComplete = false
     private fun autoPlaySingleSourceKey() = profileManager.profileBooleanKey("auto_play_single_source")
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
+    private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
 
     private fun isBlankRating(value: String): Boolean {
         return value.isBlank() || value == "0.0" || value == "0"
@@ -237,6 +238,7 @@ class DetailsViewModel @Inject constructor(
                 val prefs = context.settingsDataStore.data.first()
                 val autoPlaySingleSource = prefs[autoPlaySingleSourceKey()] ?: true
                 val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+                val showBudget = prefs[showBudgetKey()] ?: true
 
                 val previousState = _uiState.value
                 val previousMatches = previousState.item?.id == mediaId &&
@@ -354,6 +356,7 @@ class DetailsViewModel @Inject constructor(
                 val budgetDisplay = if (mediaType == MediaType.MOVIE && mergedItem.budget != null && mergedItem.budget > 0) {
                     formatBudget(mergedItem.budget)
                 } else null
+                val visibleBudget = if (showBudget) budgetDisplay else null
 
                 // Get show status
                 val showStatus = if (mediaType == MediaType.TV) mergedItem.status else null
@@ -379,7 +382,7 @@ class DetailsViewModel @Inject constructor(
                     currentSeason = seasonToLoad,
                     genres = genreNames,
                     language = languageName,
-                    budget = budgetDisplay,
+                    budget = visibleBudget,
                     showStatus = showStatus
                 )
                 _uiState.value = baseState
