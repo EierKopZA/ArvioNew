@@ -113,6 +113,7 @@ fun AppNavigation(
     currentProfile: Profile? = null,
     isCloudConnected: Boolean = false,
     onSwitchProfile: () -> Unit = {},
+    onTvFullscreenChanged: (Boolean) -> Unit = {},
     onExitApp: () -> Unit = {}
 ) {
     val navigateTopLevel: (String) -> Unit = { route ->
@@ -250,6 +251,7 @@ fun AppNavigation(
                 currentProfile = currentProfile,
                 initialChannelId = initialChannelId,
                 initialStreamUrl = initialStreamUrl,
+                onFullscreenChanged = onTvFullscreenChanged,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },

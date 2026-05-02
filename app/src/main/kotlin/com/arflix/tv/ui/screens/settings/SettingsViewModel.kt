@@ -237,7 +237,7 @@ class SettingsViewModel @Inject constructor(
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
     private fun filterSubtitlesByLanguageKey() = profileManager.profileBooleanKey("filter_subtitles_by_lang")
     private fun secondarySubtitleKey() = profileManager.profileStringKey("secondary_subtitle")
-    private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
+    private val dnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private val qualityFiltersKey = stringPreferencesKey("quality_filters")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
@@ -370,7 +370,7 @@ class SettingsViewModel @Inject constructor(
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
             val filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKey()] ?: true
             val secondarySubtitle = prefs[secondarySubtitleKey()]?.trim()?.takeIf { it.isNotBlank() } ?: "Off"
-            val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey()])
+            val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey])
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
             val qualityFilters = runCatching {
                 val json = prefs[qualityFiltersKey].orEmpty()
@@ -1031,7 +1031,7 @@ class SettingsViewModel @Inject constructor(
                 runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
             }
             context.settingsDataStore.edit { prefs ->
-                prefs[dnsProviderKey()] = value
+                prefs[dnsProviderKey] = value
             }
             _uiState.value = _uiState.value.copy(
                 dnsProvider = dnsProviderLabel(value)

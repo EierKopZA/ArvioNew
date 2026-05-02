@@ -55,6 +55,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -109,7 +110,12 @@ class StreamRepository @Inject constructor(
         val result: StreamResult,
         val createdAtMs: Long
     )
+    private data class CachedResolvedStream(
+        val stream: StreamSource,
+        val createdAtMs: Long
+    )
     private val streamResultCache = mutableMapOf<String, CachedStreamResult>()
+    private val resolvedStreamCache = ConcurrentHashMap<String, CachedResolvedStream>()
     private val stremioAddonRuntime = StremioAddonRuntime(
         movieResolver = { addon, request ->
             fetchMovieStreamsFromAddon(
@@ -1375,6 +1381,7 @@ class StreamRepository @Inject constructor(
     private val STREAM_RESULT_CACHE_TTL_MS = 10 * 60_000L
     private val STREAM_RESULT_CACHE_HTTP_TTL_MS = 90_000L
     private val STREAM_RESULT_CACHE_HTTP_EPHEMERAL_TTL_MS = 30_000L
+    private val EPISODE_STREAM_CACHE_TYPE = "series_v2"
 
     private fun streamCacheKey(
         profileId: String,
@@ -1583,18 +1590,23 @@ class StreamRepository @Inject constructor(
                     addon.url.contains("mediafusion") ||
                     addon.url.contains("comet")
 
-                val useKitsu = isAnime && supportsKitsu && animeQuery != null
-                val contentId = if (useKitsu) animeQuery else seriesId
-
-                val url = if (queryParams != null) {
-                    "$baseUrl/stream/series/$contentId.json?$queryParams"
-                } else {
-                    "$baseUrl/stream/series/$contentId.json"
+                val useKitsuFallback = isAnime && supportsKitsu && animeQuery != null && animeQuery != seriesId
+                fun streamUrl(contentId: String): String {
+                    return if (queryParams != null) {
+                        "$baseUrl/stream/series/$contentId.json?$queryParams"
+                    } else {
+                        "$baseUrl/stream/series/$contentId.json"
+                    }
                 }
+
+                // For anime debrid addons, prefer the exact app season/episode request first.
+                // Kitsu mappings are still useful as fallback, but split cours can remap
+                // episodes like TMDB S4E29 to Kitsu E7 and surface the wrong debrid files.
+                val url = streamUrl(seriesId)
 
                 Log.d(
                     TAG,
-                    "[StreamFetch][Episode] request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(url)} kitsu=$useKitsu"
+                    "[StreamFetch][Episode] request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(url)} kitsu=false"
                 )
 
                 val response = streamApi.getAddonStreams(url)
@@ -1604,27 +1616,23 @@ class StreamRepository @Inject constructor(
                     "[StreamFetch][Episode] response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
                 )
 
-                if (addonStreams.isEmpty() && useKitsu && contentId != seriesId) {
-                    val fallbackUrl = if (queryParams != null) {
-                        "$baseUrl/stream/series/$seriesId.json?$queryParams"
-                    } else {
-                        "$baseUrl/stream/series/$seriesId.json"
-                    }
+                if (addonStreams.isEmpty() && useKitsuFallback) {
+                    val fallbackUrl = streamUrl(animeQuery)
                     Log.d(
                         TAG,
-                        "[StreamFetch][Episode] fallback request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(fallbackUrl)}"
+                        "[StreamFetch][Episode] kitsu fallback request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(fallbackUrl)}"
                     )
                     try {
                         val fallbackResponse = streamApi.getAddonStreams(fallbackUrl)
                         addonStreams = processStreams(fallbackResponse.streams ?: emptyList(), addon)
                         Log.d(
                             TAG,
-                            "[StreamFetch][Episode] fallback response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size}"
+                            "[StreamFetch][Episode] kitsu fallback response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size}"
                         )
                     } catch (fallbackError: Exception) {
                         Log.w(
                             TAG,
-                            "[StreamFetch][Episode] fallback failure addon=${addon.name} addonId=${addon.id} error=${fallbackError.toShortLogMessage()}"
+                            "[StreamFetch][Episode] kitsu fallback failure addon=${addon.name} addonId=${addon.id} error=${fallbackError.toShortLogMessage()}"
                         )
                     }
                 }
@@ -1912,10 +1920,24 @@ class StreamRepository @Inject constructor(
         year: Int? = null,
         tmdbId: Int? = null,
         timeoutMs: Long = 15_000L
-    ): StreamSource? = withContext(Dispatchers.IO) {
+    ): StreamSource? = resolveMovieVodSources(
+        imdbId = imdbId,
+        title = title,
+        year = year,
+        tmdbId = tmdbId,
+        timeoutMs = timeoutMs
+    ).firstOrNull()
+
+    suspend fun resolveMovieVodSources(
+        imdbId: String?,
+        title: String = "",
+        year: Int? = null,
+        tmdbId: Int? = null,
+        timeoutMs: Long = 15_000L
+    ): List<StreamSource> = withContext(Dispatchers.IO) {
         withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
             runCatching {
-                iptvRepository.findMovieVodSource(
+                iptvRepository.findMovieVodSources(
                     title = title,
                     year = year,
                     imdbId = imdbId,
@@ -1923,9 +1945,9 @@ class StreamRepository @Inject constructor(
                     allowNetwork = true
                 )
             }.onFailure { e ->
-                System.err.println("[VOD] resolveMovieVodOnly failed: ${e.message}")
-            }.getOrNull()
-        }
+                System.err.println("[VOD] resolveMovieVodSources failed: ${e.message}")
+            }.getOrDefault(emptyList())
+        }.orEmpty()
     }
 
     /**
@@ -2053,7 +2075,7 @@ class StreamRepository @Inject constructor(
         val cloudstreamAddons = allAddons.filter { it.isInstalled && it.isEnabled && it.runtimeKind == RuntimeKind.CLOUDSTREAM }
         val cacheKey = streamCacheKey(
             profileId = profileManager.getProfileIdSync(),
-            type = "series",
+            type = EPISODE_STREAM_CACHE_TYPE,
             imdbId = imdbId,
             season = season,
             episode = episode
@@ -2115,7 +2137,7 @@ class StreamRepository @Inject constructor(
             val cloudstreamAddons = allAddons.filter { it.isInstalled && it.isEnabled && it.runtimeKind == RuntimeKind.CLOUDSTREAM }
             val cacheKey = streamCacheKey(
                 profileId = profileManager.getProfileIdSync(),
-                type = "series",
+                type = EPISODE_STREAM_CACHE_TYPE,
                 imdbId = imdbId,
                 season = season,
                 episode = episode
@@ -2276,10 +2298,26 @@ class StreamRepository @Inject constructor(
         title: String = "",
         tmdbId: Int? = null,
         timeoutMs: Long = 45_000L
-    ): StreamSource? = withContext(Dispatchers.IO) {
-        val result = withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
+    ): StreamSource? = resolveEpisodeVodSources(
+        imdbId = imdbId,
+        season = season,
+        episode = episode,
+        title = title,
+        tmdbId = tmdbId,
+        timeoutMs = timeoutMs
+    ).firstOrNull()
+
+    suspend fun resolveEpisodeVodSources(
+        imdbId: String?,
+        season: Int,
+        episode: Int,
+        title: String = "",
+        tmdbId: Int? = null,
+        timeoutMs: Long = 45_000L
+    ): List<StreamSource> = withContext(Dispatchers.IO) {
+        withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
             runCatching {
-                iptvRepository.findEpisodeVodSource(
+                iptvRepository.findEpisodeVodSources(
                     title = title,
                     season = season,
                     episode = episode,
@@ -2288,10 +2326,9 @@ class StreamRepository @Inject constructor(
                     allowNetwork = true
                 )
             }.onFailure { e ->
-                System.err.println("[VOD] resolveEpisodeVodOnly failed: ${e.message}")
-            }.getOrNull()
-        }
-        result
+                System.err.println("[VOD] resolveEpisodeVodSources failed: ${e.message}")
+            }.getOrDefault(emptyList())
+        }.orEmpty()
     }
 
     suspend fun prefetchEpisodeVod(
@@ -2441,20 +2478,154 @@ class StreamRepository @Inject constructor(
 
     // Timeout for resolving a single stream URL (redirect chains, debrid resolvers).
     private val STREAM_RESOLUTION_TIMEOUT_MS = 8_000L
+    private val STREAM_PREWARM_TTL_MS = 90_000L
+    private val STREAM_PREWARM_EPHEMERAL_TTL_MS = 25_000L
+    private val STREAM_PREWARM_NETWORK_TIMEOUT_MS = 700L
+
+    private fun resolvedStreamCacheKey(stream: StreamSource): String {
+        val infoHash = stream.infoHash?.trim()?.lowercase(Locale.US).orEmpty()
+        if (infoHash.isNotBlank()) {
+            return "ih:${stream.addonId}|$infoHash:${stream.fileIdx ?: -1}"
+        }
+        val url = stream.url?.trim().orEmpty()
+        val urlKey = if (url.isNotBlank()) {
+            url.substringBefore('|').substringBefore('#')
+        } else {
+            stream.source
+        }
+        return "${stream.addonId}|${stream.source}|$urlKey"
+    }
+
+    private fun isLikelyEphemeralPlaybackUrl(url: String, stream: StreamSource): Boolean {
+        val lower = url.lowercase(Locale.US)
+        return lower.contains("token=") ||
+            lower.contains("expires=") ||
+            lower.contains("signature=") ||
+            lower.contains("sig=") ||
+            lower.contains("exp=") ||
+            lower.contains("auth=") ||
+            stream.behaviorHints?.notWebReady == true ||
+            !stream.behaviorHints?.proxyHeaders?.request.isNullOrEmpty()
+    }
+
+    private fun resolvedStreamCacheTtlMs(stream: StreamSource): Long {
+        val url = stream.url?.trim().orEmpty()
+        return if (isLikelyEphemeralPlaybackUrl(url, stream)) {
+            STREAM_PREWARM_EPHEMERAL_TTL_MS
+        } else {
+            STREAM_PREWARM_TTL_MS
+        }
+    }
+
+    private fun cachedResolvedStream(stream: StreamSource): StreamSource? {
+        val cached = resolvedStreamCache[resolvedStreamCacheKey(stream)] ?: return null
+        val ageMs = System.currentTimeMillis() - cached.createdAtMs
+        return if (ageMs <= resolvedStreamCacheTtlMs(cached.stream)) {
+            cached.stream
+        } else {
+            resolvedStreamCache.remove(resolvedStreamCacheKey(stream))
+            null
+        }
+    }
+
+    private fun shouldAvoidPlaybackProbe(url: String, stream: StreamSource): Boolean {
+        if (isLikelyEphemeralPlaybackUrl(url, stream)) return true
+        val host = runCatching { java.net.URI(url).host?.lowercase(Locale.US) }.getOrNull().orEmpty()
+        if (host.isBlank()) return true
+        val debridDomains = listOf(
+            "real-debrid.com",
+            "real-debrid.cloud",
+            "alldebrid.com",
+            "debrid-link.com",
+            "easydebrid.com",
+            "premiumize.me",
+            "torbox.app",
+            "put.io"
+        )
+        return debridDomains.any { domain -> host == domain || host.endsWith(".$domain") }
+    }
+
+    private suspend fun warmHttpConnection(stream: StreamSource) {
+        val rawUrl = stream.url?.trim().orEmpty()
+        if (!rawUrl.startsWith("http://", true) && !rawUrl.startsWith("https://", true)) return
+        if (shouldAvoidPlaybackProbe(rawUrl, stream)) return
+
+        val headers = mergeRequestHeaders(
+            base = stream.behaviorHints?.proxyHeaders?.request.orEmpty(),
+            extra = emptyMap()
+        ).toMutableMap()
+        if (headers.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+            headers["User-Agent"] =
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        if (headers.keys.none { it.equals("Accept", ignoreCase = true) }) {
+            headers["Accept"] = "*/*"
+        }
+        if (headers.keys.none { it.equals("Range", ignoreCase = true) }) {
+            headers["Range"] = "bytes=0-1"
+        }
+        val referer = headers.entries.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
+        if (!referer.isNullOrBlank() && headers.keys.none { it.equals("Origin", ignoreCase = true) }) {
+            deriveOriginFromReferer(referer)?.let { origin -> headers["Origin"] = origin }
+        }
+
+        runCatching {
+            withTimeout(STREAM_PREWARM_NETWORK_TIMEOUT_MS) {
+                val request = Request.Builder()
+                    .url(rawUrl)
+                    .get()
+                    .apply { headers.forEach { (key, value) -> addHeader(key, value) } }
+                    .build()
+                okHttpClient.newCall(request).execute().close()
+            }
+        }
+    }
 
     /**
      * Resolve a single stream for playback - with timeout to prevent hanging forever
      */
     suspend fun resolveStreamForPlayback(stream: StreamSource): StreamSource? = withContext(Dispatchers.IO) {
+        cachedResolvedStream(stream)?.let { return@withContext it }
         try {
             withTimeout(STREAM_RESOLUTION_TIMEOUT_MS) {
-                resolveStreamInternal(stream)
+                resolveStreamInternal(stream)?.also { resolved ->
+                    resolvedStreamCache[resolvedStreamCacheKey(stream)] = CachedResolvedStream(
+                        stream = resolved,
+                        createdAtMs = System.currentTimeMillis()
+                    )
+                }
             }
         } catch (e: TimeoutCancellationException) {
             null
         } catch (e: Exception) {
             null
         }
+    }
+
+    suspend fun prewarmStreamForPlayback(
+        stream: StreamSource,
+        allowNetworkWarmup: Boolean = true
+    ): StreamSource? = withContext(Dispatchers.IO) {
+        val resolved = resolveStreamForPlayback(stream) ?: return@withContext null
+        if (allowNetworkWarmup) {
+            warmHttpConnection(resolved)
+        }
+        resolved
+    }
+
+    suspend fun prewarmStreamsForPlayback(
+        streams: List<StreamSource>,
+        limit: Int = 3,
+        allowNetworkWarmup: Boolean = true
+    ) = withContext(Dispatchers.IO) {
+        streams.asSequence()
+            .filter { !it.url.isNullOrBlank() }
+            .take(limit.coerceAtLeast(0))
+            .forEach { stream ->
+                runCatching {
+                    prewarmStreamForPlayback(stream, allowNetworkWarmup)
+                }
+            }
     }
 
     /**

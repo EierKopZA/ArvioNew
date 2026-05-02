@@ -533,11 +533,18 @@ fun ArflixApp(
     val isMobile = deviceType.isTouchDevice()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
+    var iptvFullscreen by remember { mutableStateOf(false) }
+    LaunchedEffect(currentRoute) {
+        if (currentRoute?.startsWith("tv") != true) {
+            iptvFullscreen = false
+        }
+    }
     // Hide bottom bar on player, profile selection, and login screens.
     // TV route shows the bottom bar on mobile (touch devices) for easy navigation;
     // the fullscreen IPTV player uses BackHandler to return to the guide.
     val showBottomBar = isMobile && activeProfile != null &&
         currentRoute != null &&
+        !iptvFullscreen &&
         !currentRoute.contains("player") &&
         !currentRoute.contains("profile") &&
         !currentRoute.contains("login")
@@ -581,6 +588,9 @@ fun ArflixApp(
                         profileManager.setCurrentProfileName("default")
                         profileRepository.clearActiveProfile()
                     }
+                },
+                onTvFullscreenChanged = { fullscreen ->
+                    iptvFullscreen = fullscreen
                 },
                 onExitApp = onExitApp
             )

@@ -3,6 +3,7 @@
 package com.arflix.tv.ui.screens.player
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -17,6 +18,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween as animTween
 import androidx.compose.animation.fadeIn
@@ -126,6 +128,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.arflix.tv.ArflixApplication
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.StreamSource
@@ -200,6 +203,11 @@ fun PlayerScreen(
     val coroutineScope = rememberCoroutineScope()
     val deviceType = LocalDeviceType.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isConstrainedPlaybackDevice = remember(context, deviceType) {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        deviceType == com.arflix.tv.util.DeviceType.TV &&
+            (activityManager?.isLowRamDevice == true || (activityManager?.memoryClass ?: Int.MAX_VALUE) <= 384)
+    }
 
     // Keep playback in landscape while the player is visible, regardless of the
     // device's auto-rotate lock. Restore the app's prior orientation afterward.
@@ -479,7 +487,12 @@ fun PlayerScreen(
     // ExoPlayer - tuned for both small and very large (70GB+) files.
     // Byte cap is authoritative (prioritize size over time) so high-bitrate streams
     // cannot exhaust memory on TV devices with limited heap (384-512 MB).
-    val exoPlayer = remember {
+    val exoPlayer = remember(isConstrainedPlaybackDevice) {
+        val targetBufferBytes = if (isConstrainedPlaybackDevice) {
+            48 * 1024 * 1024
+        } else {
+            80 * 1024 * 1024
+        }
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 12_000,    // minBufferMs
@@ -487,7 +500,7 @@ fun PlayerScreen(
                 500,       // bufferForPlaybackMs
                 2_000      // bufferForPlaybackAfterRebufferMs
             )
-            .setTargetBufferBytes(80 * 1024 * 1024)   // 80 MB hard cap
+            .setTargetBufferBytes(targetBufferBytes)
             .setPrioritizeTimeOverSizeThresholds(false) // byte cap is authoritative
             .setBackBuffer(3_000, false)                // minimal back buffer
             .build()
@@ -653,7 +666,7 @@ fun PlayerScreen(
                                 // One-time full re-resolve of same source to refresh debrid URL/headers.
                                 if (!startupSameSourceRefreshAttempted) {
                                     startupSameSourceRefreshAttempted = true
-                                    latestUiState.selectedStream?.let { viewModel.selectStream(it) }
+                                    latestUiState.selectedStream?.let { viewModel.selectStream(it, this@apply.currentPosition) }
                                     return
                                 }
                             }
@@ -874,6 +887,7 @@ fun PlayerScreen(
             playbackIssueReported = false
             rebufferRecoverAttempted = false
             longRebufferCount = 0
+            ArflixApplication.trimImageMemory()
 
             // Match frame rate before touching playback so any display mode switch
             // happens up-front instead of mid-playback.
@@ -890,7 +904,7 @@ fun PlayerScreen(
                         .filterKeys { it.isNotBlank() }
                     val detection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                            com.arflix.tv.util.FrameRateUtils.detectFrameRate(
+                            com.arflix.tv.util.FrameRateUtils.detectFrameRateCached(
                                 sourceUrl = url,
                                 headers = baseRequestHeaders + streamHeaders
                             )
@@ -1257,7 +1271,7 @@ fun PlayerScreen(
                         // auto advanced to a fallback stream
                     } else if (!startupSameSourceRefreshAttempted) {
                         startupSameSourceRefreshAttempted = true
-                        uiState.selectedStream?.let { viewModel.selectStream(it) }
+                        uiState.selectedStream?.let { viewModel.selectStream(it, exoPlayer.currentPosition) }
                     } else {
                         startupHardFailureReported = true
                         playbackIssueReported = true
@@ -1499,9 +1513,13 @@ fun PlayerScreen(
     }
 
     BackHandler(
-        enabled = showControls && !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
+        enabled = !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
     ) {
-        showControls = false
+        if (showControls) {
+            showControls = false
+        } else {
+            onBack()
+        }
     }
 
     val playerDeviceType = LocalDeviceType.current
@@ -1629,9 +1647,13 @@ fun PlayerScreen(
                     }
 
                     if ((event.key == Key.Back || event.key == Key.Escape) &&
-                        showControls && !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
+                        !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
                     ) {
-                        showControls = false
+                        if (showControls) {
+                            showControls = false
+                        } else {
+                            onBack()
+                        }
                         return@onKeyEvent true
                     }
 
@@ -2440,6 +2462,9 @@ fun PlayerScreen(
             } else {
                 ""
             },
+            onFocusedStream = { stream ->
+                viewModel.prewarmStream(stream)
+            },
             onSelect = { stream: StreamSource ->
                 userSelectedSourceManually = true
                 playbackIssueReported = false
@@ -2450,7 +2475,7 @@ fun PlayerScreen(
                 startupUrlLock = null
                 rebufferRecoverAttempted = false
                 longRebufferCount = 0
-                viewModel.selectStream(stream)
+                viewModel.selectStream(stream, exoPlayer.currentPosition)
                 showSourceMenu = false
                 showControls = true
                 coroutineScope.launch {
@@ -2800,11 +2825,24 @@ private fun PulsingLogo(
     progress: Float? = null,
     phaseLabel: String? = null
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val infiniteTransition = rememberInfiniteTransition(label = "heartbeat")
     val scale by infiniteTransition.animateFloat(
-        initialValue = 0.92f, targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(animation = animTween(1200, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "pulseScale"
+        initialValue = 1.0f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1500
+                // Two quick beats followed by a short rest (heartbeat).
+                1.0f at 0
+                1.08f at 160 using FastOutSlowInEasing
+                1.02f at 280 using FastOutSlowInEasing
+                1.12f at 420 using FastOutSlowInEasing
+                1.0f at 620 using FastOutSlowInEasing
+                1.0f at 1500
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "heartbeatScale"
     )
 
     // Smoothly interpolate discrete progress jumps from the ViewModel so the
@@ -2820,7 +2858,7 @@ private fun PulsingLogo(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
-            modifier = Modifier.size(180.dp),
+            modifier = Modifier.size(196.dp),
             contentAlignment = Alignment.Center
         ) {
             if (progress != null) {
@@ -2863,7 +2901,7 @@ private fun PulsingLogo(
                 if (!logoUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = logoUrl, contentDescription = title, contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxWidth(0.7f).height(140.dp)
+                        modifier = Modifier.fillMaxWidth(0.76f).height(152.dp)
                     )
                 } else {
                     Text(

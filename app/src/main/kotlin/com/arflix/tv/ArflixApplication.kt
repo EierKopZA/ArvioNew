@@ -20,6 +20,7 @@ import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
+import coil.imageLoader
 import coil.memory.MemoryCache
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.repository.AuthRepository
@@ -41,7 +42,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.arflix.tv.util.settingsDataStore
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -85,9 +88,14 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // later acquire the client through the same lazy path, so ordering is
         // preserved without blocking here.
         //
-        // Warm DNS for TMDB image CDN so the very first image request on the
-        // home screen doesn't block on DoH bootstrap + resolution.
+        // Initialize global DNS provider from DataStore before network calls
         appScope.launch(Dispatchers.IO) {
+            val prefs = settingsDataStore.data.first()
+            val dnsKey = androidx.datastore.preferences.core.stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
+            val dnsPref = prefs[dnsKey]
+            val provider = OkHttpProvider.parseDnsProvider(dnsPref)
+            OkHttpProvider.setDnsProvider(provider)
+
             runCatching {
                 com.arflix.tv.cloudstream.initCloudstream(OkHttpProvider.client)
             }
@@ -191,15 +199,22 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         super.onTrimMemory(level)
         if (
             level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
-            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE
         ) {
-            appImageLoader?.memoryCache?.clear()
+            clearImageMemoryCaches()
         }
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
+        clearImageMemoryCaches()
+    }
+
+    private fun clearImageMemoryCaches() {
         appImageLoader?.memoryCache?.clear()
+        // Settings can replace Coil's global loader after DNS changes; clear the
+        // active loader too so memory-pressure callbacks always affect what UI uses.
+        runCatching { imageLoader.memoryCache?.clear() }
     }
 
     private fun isLowRamDevice(): Boolean {
@@ -256,6 +271,12 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     companion object {
         lateinit var instance: ArflixApplication
             private set
+
+        fun trimImageMemory() {
+            if (::instance.isInitialized) {
+                instance.clearImageMemoryCaches()
+            }
+        }
     }
 }
 
