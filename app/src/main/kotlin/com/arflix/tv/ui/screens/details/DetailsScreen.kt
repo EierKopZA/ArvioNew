@@ -131,7 +131,7 @@ import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.PersonModal
 import com.arflix.tv.ui.components.PosterCard
-import com.arflix.tv.ui.components.rememberCardLayoutMode
+import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.SkeletonDetailsPage
 import com.arflix.tv.ui.components.StreamSelector
@@ -190,7 +190,7 @@ fun DetailsScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
+    val usePosterCards = rememberCatalogueRowLayoutMode("details:similar") == CardLayoutMode.POSTER
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val isMobile = LocalDeviceType.current.isTouchDevice()
@@ -804,6 +804,9 @@ fun DetailsScreen(
             selectedStream = null,
             isLoading = uiState.isLoadingStreams,
             hasStreamingAddons = uiState.hasStreamingAddons,
+            onFocusedStream = { stream ->
+                viewModel.prewarmStream(stream)
+            },
             onSelect = { stream ->
                 if (isPendingDebridStream(stream)) {
                     viewModel.showToast(
@@ -1651,6 +1654,7 @@ private fun DetailsContent(
                 val hasDuration = item.duration.isNotEmpty() && item.duration != "0m"
                 val rating = item.imdbRating.ifEmpty { item.tmdbRating }
                 val ratingValue = parseRatingValue(rating)
+                val primaryNetworkLogo = item.primaryNetworkLogo?.takeIf { it.isNotBlank() }
                 val budgetText = budget?.trim()?.takeIf { it.isNotEmpty() && item.mediaType == MediaType.MOVIE }
                 val overviewMaxHeight = if (isCompactHeight) 68.dp else 72.dp
 
@@ -1696,6 +1700,19 @@ private fun DetailsContent(
                                 shadow = textShadow
                             ),
                             color = Color.White
+                        )
+                    }
+
+                    if (primaryNetworkLogo != null) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        AsyncImage(
+                            model = primaryNetworkLogo,
+                            imageLoader = metadataLogoImageLoader,
+                            contentDescription = "Primary streaming provider",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .height(16.dp)
+                                .width(52.dp)
                         )
                     }
 

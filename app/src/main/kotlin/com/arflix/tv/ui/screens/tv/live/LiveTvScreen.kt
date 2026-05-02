@@ -135,6 +135,7 @@ fun LiveTvScreen(
     currentProfile: Profile? = null,
     initialChannelId: String? = null,
     initialStreamUrl: String? = null,
+    onFullscreenChanged: (Boolean) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
@@ -213,6 +214,7 @@ fun LiveTvScreen(
                 favoritesCount = favSet.count { it in initialIndex.byId },
                 recentCount = recents.value.count { it in initialIndex.byId },
                 hiddenGroups = hiddenGroupSet,
+                groupOrder = state.snapshot.groupOrder,
             )
         }
         enrichedState.value = EnrichedChannels(
@@ -230,6 +232,7 @@ fun LiveTvScreen(
                 favoritesCount = favSet.count { it in index.byId },
                 recentCount = recents.value.count { it in index.byId },
                 hiddenGroups = hiddenGroupSet,
+                groupOrder = state.snapshot.groupOrder,
             )
         }
         val value = EnrichedChannels(all = enriched, tree = tree, index = index)
@@ -238,7 +241,7 @@ fun LiveTvScreen(
         viewModel.cachedChannelsSignature = signature
     }
     // Re-evaluate only dynamic counts when favorites/recents change.
-    LaunchedEffect(favSet, hiddenGroupSet, recents.value, enrichedState.value.all) {
+    LaunchedEffect(favSet, hiddenGroupSet, state.snapshot.groupOrder, recents.value, enrichedState.value.all) {
         val current = enrichedState.value
         if (current === EnrichedChannels.Empty) return@LaunchedEffect
         val byId = current.index.byId
@@ -248,6 +251,7 @@ fun LiveTvScreen(
                 favoritesCount = favSet.count { it in byId },
                 recentCount = recents.value.count { it in byId },
                 hiddenGroups = hiddenGroupSet,
+                groupOrder = state.snapshot.groupOrder,
             )
         }
         enrichedState.value = current.copy(tree = tree)
@@ -344,6 +348,12 @@ fun LiveTvScreen(
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
     var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
+    LaunchedEffect(isFullScreen) {
+        onFullscreenChanged(isFullScreen)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onFullscreenChanged(false) }
+    }
     // Focus requesters for the three regions.
     val sidebarFocus = remember { FocusRequester() }
     val miniFocus = remember { FocusRequester() }
@@ -650,6 +660,15 @@ fun LiveTvScreen(
                     onHideCategory = { groupName ->
                         selectedCategoryId = "all"
                         viewModel.toggleHiddenGroup(groupName)
+                    },
+                    onUnhideCategory = { groupName ->
+                        viewModel.toggleHiddenGroup(groupName)
+                    },
+                    onMoveCategoryUp = { groupName ->
+                        viewModel.moveGroupUp(groupName)
+                    },
+                    onMoveCategoryDown = { groupName ->
+                        viewModel.moveGroupDown(groupName)
                     },
                     onFocusEnter = { focusZone = LiveTvFocusZone.SIDEBAR },
                     onMoveRight = {

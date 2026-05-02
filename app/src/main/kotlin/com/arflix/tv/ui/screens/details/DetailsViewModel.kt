@@ -179,10 +179,13 @@ class DetailsViewModel @Inject constructor(
     private var vodAppendJob: kotlinx.coroutines.Job? = null
     private var loadStreamsJob: kotlinx.coroutines.Job? = null
     private var loadStreamsRequestId: Long = 0L
+    private var focusedStreamPrewarmJob: kotlinx.coroutines.Job? = null
+    private var streamListPrewarmJob: kotlinx.coroutines.Job? = null
     /** Set to true after loadDetails() child coroutines finish populating episodes/seasons. */
     @Volatile private var initialLoadComplete = false
     private fun autoPlaySingleSourceKey() = profileManager.profileBooleanKey("auto_play_single_source")
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
+    private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
 
     private fun isBlankRating(value: String): Boolean {
         return value.isBlank() || value == "0.0" || value == "0"
@@ -235,6 +238,7 @@ class DetailsViewModel @Inject constructor(
                 val prefs = context.settingsDataStore.data.first()
                 val autoPlaySingleSource = prefs[autoPlaySingleSourceKey()] ?: true
                 val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+                val showBudget = prefs[showBudgetKey()] ?: true
 
                 val previousState = _uiState.value
                 val previousMatches = previousState.item?.id == mediaId &&
@@ -352,6 +356,7 @@ class DetailsViewModel @Inject constructor(
                 val budgetDisplay = if (mediaType == MediaType.MOVIE && mergedItem.budget != null && mergedItem.budget > 0) {
                     formatBudget(mergedItem.budget)
                 } else null
+                val visibleBudget = if (showBudget) budgetDisplay else null
 
                 // Get show status
                 val showStatus = if (mediaType == MediaType.TV) mergedItem.status else null
@@ -377,7 +382,7 @@ class DetailsViewModel @Inject constructor(
                     currentSeason = seasonToLoad,
                     genres = genreNames,
                     language = languageName,
-                    budget = budgetDisplay,
+                    budget = visibleBudget,
                     showStatus = showStatus
                 )
                 _uiState.value = baseState
@@ -1117,8 +1122,33 @@ class DetailsViewModel @Inject constructor(
         }
     }
 
+    fun prewarmStream(stream: StreamSource) {
+        focusedStreamPrewarmJob?.cancel()
+        focusedStreamPrewarmJob = viewModelScope.launch {
+            runCatching {
+                streamRepository.prewarmStreamForPlayback(stream, allowNetworkWarmup = true)
+            }
+        }
+    }
+
+    private fun prewarmVisibleStreams(streams: List<StreamSource>) {
+        if (streams.isEmpty()) return
+        streamListPrewarmJob?.cancel()
+        streamListPrewarmJob = viewModelScope.launch {
+            runCatching {
+                streamRepository.prewarmStreamsForPlayback(
+                    streams = streams.take(3),
+                    limit = 3,
+                    allowNetworkWarmup = false
+                )
+            }
+        }
+    }
+
     fun loadStreams(imdbId: String?, season: Int? = null, episode: Int? = null) {
         loadStreamsJob?.cancel()
+        focusedStreamPrewarmJob?.cancel()
+        streamListPrewarmJob?.cancel()
         val requestId = ++loadStreamsRequestId
         val requestMediaType = currentMediaType
         val requestMediaId = currentMediaId
@@ -1130,6 +1160,24 @@ class DetailsViewModel @Inject constructor(
                     currentMediaId == requestMediaId
             }
             if (!isCurrentRequest()) return@launch
+
+            // If the user clicked Play/Sources very fast (e.g. from Search), the background
+            // resolveExternalIds might still be running. Try to recover it from cache
+            // or wait for the UI state to be updated by the background fetch.
+            var currentImdbId = imdbId ?: _uiState.value.imdbId
+            if (currentImdbId.isNullOrBlank()) {
+                currentImdbId = mediaRepository.getCachedImdbId(requestMediaType, requestMediaId)
+            }
+            if (currentImdbId.isNullOrBlank()) {
+                withTimeoutOrNull(3500) {
+                    while (currentImdbId.isNullOrBlank() && isCurrentRequest()) {
+                        delay(200)
+                        currentImdbId = _uiState.value.imdbId
+                    }
+                }
+            }
+            val resolvedImdbId = currentImdbId
+
             _uiState.value = _uiState.value.copy(
                 isLoadingStreams = true,
                 streams = emptyList(),
@@ -1140,7 +1188,7 @@ class DetailsViewModel @Inject constructor(
                 val title = _uiState.value.item?.title.orEmpty()
                 Log.d(
                     TAG,
-                    "[MovieSources] loadStreams start requestId=$requestId mediaId=$requestMediaId imdbId=${imdbId ?: "null"} title=$title"
+                    "[MovieSources] loadStreams start requestId=$requestId mediaId=$requestMediaId imdbId=${resolvedImdbId ?: "null"} title=$title"
                 )
             }
 
@@ -1156,7 +1204,7 @@ class DetailsViewModel @Inject constructor(
                     // On rare true cold starts, catalog download can take 15-30s for large providers.
                     val vodTimeout = if (currentMediaType == MediaType.MOVIE) 30_000L else 45_000L
                     appendVodSourceInBackground(
-                        imdbId = imdbId,
+                        imdbId = resolvedImdbId,
                         season = season,
                         episode = episode,
                         timeoutMs = vodTimeout,
@@ -1203,7 +1251,7 @@ class DetailsViewModel @Inject constructor(
                         )
                     }
 
-                    if (imdbId.isNullOrBlank()) {
+                    if (resolvedImdbId.isNullOrBlank()) {
                         Log.w(
                             TAG,
                             "[MovieSources] loadStreams skipped (missing imdbId) requestId=$requestId mediaId=$requestMediaId"
@@ -1218,7 +1266,7 @@ class DetailsViewModel @Inject constructor(
                         return@launch
                     }
                     streamRepository.resolveMovieStreamsProgressive(
-                        imdbId = imdbId,
+                        imdbId = resolvedImdbId,
                         title = item?.title.orEmpty(),
                         year = item?.year?.toIntOrNull()
                     ).collect { progressive ->
@@ -1241,6 +1289,7 @@ class DetailsViewModel @Inject constructor(
                             subtitles = progressive.subtitles,
                             hasStreamingAddons = addonCount > 0
                         )
+                        prewarmVisibleStreams(mergedStreams)
                         if (progressive.isFinal) {
                             Log.d(
                                 TAG,
@@ -1250,7 +1299,7 @@ class DetailsViewModel @Inject constructor(
                     }
                     return@launch
                 } else {
-                    if (imdbId.isNullOrBlank()) {
+                    if (resolvedImdbId.isNullOrBlank()) {
                         _uiState.value = _uiState.value.copy(
                             isLoadingStreams = false,
                             streams = emptyList(),
@@ -1266,7 +1315,7 @@ class DetailsViewModel @Inject constructor(
                         ?.airDate?.takeIf { it.isNotBlank() }
 
                     streamRepository.resolveEpisodeStreamsProgressive(
-                        imdbId = imdbId,
+                        imdbId = resolvedImdbId,
                         season = season ?: 1,
                         episode = episode ?: 1,
                         tmdbId = currentMediaId,
@@ -1290,6 +1339,7 @@ class DetailsViewModel @Inject constructor(
                             subtitles = progressive.subtitles,
                             hasStreamingAddons = addonCount > 0
                         )
+                        prewarmVisibleStreams(mergedStreams)
                     }
                     return@launch
                 }
@@ -1838,14 +1888,10 @@ class DetailsViewModel @Inject constructor(
         ) {
             return
         }
-        val currentStreams = _uiState.value.streams
-        if (currentStreams.any { it.addonId == "iptv_xtream_vod" }) {
-            return
-        }
         val itemTitle = _uiState.value.item?.title.orEmpty()
 
-        val vod = if (currentMediaType == MediaType.MOVIE) {
-            streamRepository.resolveMovieVodOnly(
+        val vodSources = if (currentMediaType == MediaType.MOVIE) {
+            streamRepository.resolveMovieVodSources(
                 imdbId = imdbId,
                 title = itemTitle,
                 year = _uiState.value.item?.year?.toIntOrNull(),
@@ -1853,7 +1899,7 @@ class DetailsViewModel @Inject constructor(
                 timeoutMs = timeoutMs
             )
         } else {
-            streamRepository.resolveEpisodeVodOnly(
+            streamRepository.resolveEpisodeVodSources(
                 imdbId = imdbId,
                 season = season ?: 1,
                 episode = episode ?: 1,
@@ -1862,26 +1908,25 @@ class DetailsViewModel @Inject constructor(
                 timeoutMs = timeoutMs
             )
         }
-        if (vod == null) {
-            return
-        }
-
-        if (vod.url.isNullOrBlank()) {
+        val validVodSources = vodSources.filter { !it.url.isNullOrBlank() }
+        if (validVodSources.isEmpty()) {
             return
         }
         val latest = _uiState.value.streams
-        if (latest.any { it.url == vod.url && it.source == vod.source }) {
-            return
-        }
         if (requestId != loadStreamsRequestId ||
             currentMediaType != requestMediaType ||
             currentMediaId != requestMediaId
         ) {
             return
         }
+        val mergedStreams = sortPlayableStreamsFirst(
+            (latest + validVodSources)
+                .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+        )
         _uiState.value = _uiState.value.copy(
-            streams = latest + vod,
+            streams = mergedStreams,
             isLoadingStreams = false
         )
+        prewarmVisibleStreams(mergedStreams)
     }
 }
