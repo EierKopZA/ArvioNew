@@ -24,6 +24,7 @@ import com.arflix.tv.data.repository.WatchHistoryEntry
 import com.arflix.tv.data.repository.WatchHistoryRepository
 import com.arflix.tv.util.Constants
 import com.arflix.tv.util.settingsDataStore
+import com.arflix.tv.util.weightedSubtitleScore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -302,8 +303,8 @@ class PlayerViewModel @Inject constructor(
 
                         val mergedSubs = filterSubsByPreferredLanguage(
                             (_uiState.value.subtitles + fetchedSubs)
-                                .filter { it.url.isNotBlank() }
-                                .distinctBy { "${it.id}|${it.url}" }
+                                .filter { it.isEmbedded || it.url.isNotBlank() }
+                                .distinctBy { if (it.isEmbedded) it.id else "${it.id}|${it.url}" }
                         )
 
                         _uiState.value = _uiState.value.copy(
@@ -311,10 +312,7 @@ class PlayerViewModel @Inject constructor(
                             isLoadingSubtitles = false
                         )
 
-                        if (_uiState.value.selectedSubtitle == null) {
-                            val preferredSub = getDefaultSubtitle()
-                            applyPreferredSubtitle(preferredSub, mergedSubs, currentOriginalLanguage)
-                        }
+                        scheduleSubtitleSelection(currentOriginalLanguage)
                     } else {
                         _uiState.value = _uiState.value.copy(isLoadingSubtitles = false)
                     }
@@ -526,16 +524,15 @@ class PlayerViewModel @Inject constructor(
 
                     val mergedSubs = filterSubsByPreferredLanguage(
                         (_uiState.value.subtitles + fetchedSubs)
-                            .filter { it.url.isNotBlank() }
-                            .distinctBy { "${it.id}|${it.url}" }
+                            .filter { it.isEmbedded || it.url.isNotBlank() }
+                            .distinctBy { if (it.isEmbedded) it.id else "${it.id}|${it.url}" }
                     )
 
-                    val preferredSub = getDefaultSubtitle()
                     _uiState.value = _uiState.value.copy(
                         subtitles = mergedSubs,
                         isLoadingSubtitles = false
                     )
-                    applyPreferredSubtitle(preferredSub, mergedSubs, currentOriginalLanguage)
+                    scheduleSubtitleSelection(currentOriginalLanguage)
                 }
 
             } catch (e: Exception) {
@@ -722,7 +719,8 @@ class PlayerViewModel @Inject constructor(
             } else emptyList()
         } else emptyList()
 
-        val combined = (primary + secondaryFiltered).distinctBy { it.id }
+        val embeddedSubs = subs.filter { it.isEmbedded }
+        val combined = (embeddedSubs + primary + secondaryFiltered).distinctBy { it.id }
         return combined.ifEmpty { subs }
     }
 
@@ -740,17 +738,40 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private fun scheduleSubtitleSelection(fallbackLanguage: String?) {
+        val currentSel = _uiState.value.selectedSubtitle
+        Log.d("SubSel", "scheduleSubtitleSelection: currentSel=${currentSel?.label}|embedded=${currentSel?.isEmbedded}")
+        if (currentSel?.isEmbedded == true) {
+            Log.d("SubSel", "scheduleSubtitleSelection: skipped — embedded already selected")
+            return
+        }
+        subtitleSelectionJob?.cancel()
+        subtitleSelectionJob = viewModelScope.launch {
+            val preferred = getDefaultSubtitle()
+            val subs = _uiState.value.subtitles
+            Log.d("SubSel", "scheduleSubtitleSelection: preferred=$preferred fallback=$fallbackLanguage totalSubs=${subs.size}")
+            subs.forEachIndexed { i, s -> Log.d("SubSel", "  sub[$i] lang=${s.lang} label=${s.label} embedded=${s.isEmbedded} group=${s.groupIndex} track=${s.trackIndex}") }
+            applyPreferredSubtitle(preferred, subs, fallbackLanguage)
+        }
+    }
+
     private fun applyPreferredSubtitle(preference: String, subtitles: List<Subtitle>, fallbackLanguage: String?) {
         if (isSubtitleDisabledPreference(preference)) {
             _uiState.value = _uiState.value.copy(selectedSubtitle = null)
             return
         }
 
-        // Normalize language codes for matching
         val normalizedPref = normalizeLanguage(preference)
         val normalizedFallback = fallbackLanguage
             ?.let { normalizeLanguage(it) }
             ?.takeIf { it.isNotBlank() && it != normalizedPref }
+
+        val streamSrc = _uiState.value.selectedStream?.source.orEmpty()
+
+        fun matchScore(sub: Subtitle): Int {
+            if (sub.isEmbedded) return 100
+            return weightedSubtitleScore(streamSrc, sub.id)
+        }
 
         fun subtitleTokens(sub: Subtitle): Set<String> {
             val rawTokens = Regex("[A-Za-z-]+").findAll("${sub.lang} ${sub.label}")
@@ -764,29 +785,51 @@ class PlayerViewModel @Inject constructor(
             }.filter { it.isNotBlank() }.toSet()
         }
 
-        fun findMatch(target: String): Subtitle? {
-            // Prefer embedded subtitles over addon subtitles when both match
-            val embeddedMatch = subtitles.firstOrNull { sub ->
-                sub.isEmbedded && subtitleTokens(sub).contains(target)
-            } ?: subtitles.firstOrNull { sub ->
-                sub.isEmbedded && (sub.label.lowercase().contains(target) || sub.lang.lowercase().contains(target))
+        fun bestMatch(target: String): Subtitle? {
+            val byToken = subtitles.filter { sub -> subtitleTokens(sub).contains(target) }
+            Log.d("SubSel", "bestMatch($target): byToken=${byToken.size}")
+            val candidates = byToken.ifEmpty {
+                val fallback = subtitles.filter { sub ->
+                    sub.label.lowercase().contains(target) || sub.lang.lowercase().contains(target)
+                }
+                Log.d("SubSel", "bestMatch($target): byToken empty, contains fallback=${fallback.size}")
+                fallback
             }
-            if (embeddedMatch != null) return embeddedMatch
-
-            return subtitles.firstOrNull { sub ->
-                subtitleTokens(sub).contains(target)
-            } ?: subtitles.firstOrNull { sub ->
-                sub.label.lowercase().contains(target) || sub.lang.lowercase().contains(target)
+            if (candidates.isEmpty()) {
+                Log.d("SubSel", "bestMatch($target): no candidates")
+                return null
             }
+            val sorted = candidates.sortedWith(
+                compareByDescending<Subtitle> { if (it.isEmbedded) 1 else 0 }
+                    .thenByDescending { matchScore(it) }
+                    .thenBy { it.groupIndex ?: Int.MAX_VALUE }
+                    .thenBy { it.trackIndex ?: Int.MAX_VALUE }
+            )
+            sorted.forEachIndexed { i, s ->
+                Log.d("SubSel", "  candidate[$i] lang=${s.lang} label=${s.label} score=${matchScore(s)} embedded=${s.isEmbedded} tokens=${subtitleTokens(s)}")
+            }
+            Log.d("SubSel", "bestMatch($target): picking [0] ${sorted.first().label}")
+            return sorted.first()
         }
 
-        // Prioritize: embedded match > exact normalized match > fallback language > English fallback.
-        val match = findMatch(normalizedPref)
-            ?: normalizedFallback?.let { findMatch(it) }
-            ?: if (normalizedPref != "en") findMatch("en") else null
+        Log.d("SubSel", "applyPreferredSubtitle: pref=$preference normalizedPref=$normalizedPref fallback=$fallbackLanguage streamSrc=$streamSrc")
+        val match = bestMatch(normalizedPref)
+            ?: normalizedFallback?.let {
+                Log.d("SubSel", "applyPreferredSubtitle: no pref match, trying fallback $it")
+                bestMatch(it)
+            }
 
         if (match != null) {
-            _uiState.value = _uiState.value.copy(selectedSubtitle = match)
+            val current = _uiState.value.selectedSubtitle
+            Log.d("SubSel", "applyPreferredSubtitle: match=${match.label} current=${current?.label}|embedded=${current?.isEmbedded}")
+            if (current == null || !(current.isEmbedded && !match.isEmbedded)) {
+                Log.d("SubSel", "applyPreferredSubtitle: SELECTING ${match.label}")
+                _uiState.value = _uiState.value.copy(selectedSubtitle = match)
+            } else {
+                Log.d("SubSel", "applyPreferredSubtitle: skipped — embedded already selected")
+            }
+        } else {
+            Log.d("SubSel", "applyPreferredSubtitle: no match found")
         }
     }
 
@@ -1149,7 +1192,7 @@ class PlayerViewModel @Inject constructor(
             lowerLang == "tha" -> "th"
             lowerLang == "vie" -> "vi"
             lowerLang == "ind" -> "id"
-            lowerLang == "heb" -> "he"
+            lowerLang == "heb" || lowerLang == "iw" -> "he"
             lowerLang == "fas" || lowerLang == "per" -> "fa"
             lowerLang == "ukr" -> "uk"
             lowerLang == "ben" -> "bn"
@@ -1224,6 +1267,10 @@ class PlayerViewModel @Inject constructor(
                 streamSelectionNonce = _uiState.value.streamSelectionNonce + 1
             )
 
+            // Re-run subtitle selection now that streamSrc is known — scores are now meaningful
+            Log.d("SubSel", "selectStream: resolvedStream.source=${resolvedStream.source} stateSource=${_uiState.value.selectedStream?.source}")
+            scheduleSubtitleSelection(currentOriginalLanguage)
+
             // Refresh subtitles with stream-specific hints (videoHash/videoSize) for better matching,
             // especially for OpenSubtitles.
             val imdb = currentImdbId
@@ -1263,11 +1310,7 @@ class PlayerViewModel @Inject constructor(
                     )
                     _uiState.value = _uiState.value.copy(subtitles = merged)
 
-                    // If nothing is selected yet, try to apply the default preference against the merged list.
-                    if (_uiState.value.selectedSubtitle == null) {
-                        val preferred = getDefaultSubtitle()
-                        applyPreferredSubtitle(preferred, merged, currentOriginalLanguage)
-                    }
+                    scheduleSubtitleSelection(currentOriginalLanguage)
                 }
             }
         }
@@ -1373,7 +1416,22 @@ class PlayerViewModel @Inject constructor(
                 selectedSubtitle = resolvedSelected
             )
 
-            if (_uiState.value.selectedSubtitle == null) {
+            val currentSel = _uiState.value.selectedSubtitle
+            val shouldReapply = when {
+                currentSel == null -> true
+                !currentSel.isEmbedded ->
+                    // Non-embedded: re-apply if an embedded in the same lang just arrived
+                    finalList.any { sub -> sub.isEmbedded && normalizeLanguage(sub.lang) == normalizeLanguage(currentSel.lang) }
+                else ->
+                    // Embedded: re-apply if an earlier-indexed embedded in the same lang arrived
+                    finalList.any { sub ->
+                        sub.isEmbedded &&
+                        normalizeLanguage(sub.lang) == normalizeLanguage(currentSel.lang) &&
+                        (sub.groupIndex ?: Int.MAX_VALUE) < (currentSel.groupIndex ?: Int.MAX_VALUE)
+                    }
+            }
+            if (shouldReapply) {
+                subtitleSelectionJob?.cancel()
                 val preferred = getDefaultSubtitle()
                 applyPreferredSubtitle(preferred, finalList, currentOriginalLanguage)
             }
@@ -1796,6 +1854,7 @@ class PlayerViewModel @Inject constructor(
     private var progressSaveJob: Job? = null
     private var subtitleRefreshJob: Job? = null
     private var vodAppendJob: Job? = null
+    private var subtitleSelectionJob: Job? = null
 
     private suspend fun appendVodSourceInBackground(
         mediaType: MediaType,
@@ -1903,11 +1962,18 @@ class PlayerViewModel @Inject constructor(
                 isSameStreamUrl(stream.url, playbackUrl)
             }
 
+            val prevSource = _uiState.value.selectedStream?.source.orEmpty()
+            val newSource = (selectedMatch ?: _uiState.value.selectedStream)?.source.orEmpty()
             _uiState.value = _uiState.value.copy(
                 streams = mergedStreams,
                 selectedStream = selectedMatch ?: _uiState.value.selectedStream,
                 isLoadingStreams = false
             )
+            // Re-run subtitle selection if stream source just became known
+            if (prevSource.isBlank() && newSource.isNotBlank()) {
+                Log.d("SubSel", "auto-stream-select: source became known=$newSource, re-running selection")
+                scheduleSubtitleSelection(currentOriginalLanguage)
+            }
         } catch (_: Exception) {
             _uiState.value = _uiState.value.copy(isLoadingStreams = false)
         }

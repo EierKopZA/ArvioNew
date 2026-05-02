@@ -190,6 +190,7 @@ data class Subtitle(
     val url: String,
     val lang: String,
     val label: String,
+    val provider: String = "",
     val isEmbedded: Boolean = false,
     val groupIndex: Int? = null,
     val trackIndex: Int? = null
