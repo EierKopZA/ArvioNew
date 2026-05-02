@@ -706,6 +706,8 @@ fun DetailsScreen(
                         }
                     },
                     onSeasonClick = { idx ->
+                        seasonIndex = idx
+                        episodeIndex = 0
                         viewModel.loadSeason(idx + 1)
                     },
                     onEpisodeClick = { idx ->
