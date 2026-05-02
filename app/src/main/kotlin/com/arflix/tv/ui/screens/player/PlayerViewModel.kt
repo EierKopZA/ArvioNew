@@ -137,6 +137,9 @@ class PlayerViewModel @Inject constructor(
 
     private val SCROBBLE_UPDATE_INTERVAL_MS = 20_000L
     private val WATCH_HISTORY_UPDATE_INTERVAL_MS = 15_000L
+    private val CLOUD_PUSH_INTERVAL_MS = 60_000L // Push CW to cloud every 60s during active playback
+
+    private var lastCloudPushTime = 0L
 
     private fun defaultSubtitleKey() = profileManager.profileStringKey("default_subtitle")
     private fun defaultAudioLanguageKey() = profileManager.profileStringKey("default_audio_language")
@@ -1742,6 +1745,13 @@ class PlayerViewModel @Inject constructor(
                         streamAddonId = streamAddonId,
                         streamTitle = streamTitle
                     )
+
+                    // Push local CW to cloud so other devices see mid-playback progress.
+                    // Throttled to avoid excessive writes during active playback.
+                    if (currentTime - lastCloudPushTime >= CLOUD_PUSH_INTERVAL_MS) {
+                        lastCloudPushTime = currentTime
+                        runCatching { cloudSyncRepository.pushToCloud() }
+                    }
                 }
 
                 if (!isPlaying || playbackState == Player.STATE_ENDED || progressPercent >= Constants.WATCHED_THRESHOLD) {

@@ -1044,6 +1044,49 @@ class HomeViewModel @Inject constructor(
         // resume position. Fixes #91.
         viewModelScope.launch {
             realtimeSyncManager.watchHistoryEvents.collect {
+                // Fast path: directly update the progress bar on existing CW cards using
+                // Supabase watch_history data (which Device A writes every 15s). This gives
+                // immediate visual feedback without waiting for the full Trakt re-fetch
+                // (which can take 10+ seconds for profiles with hundreds of watched items).
+                runCatching {
+                    val historyEntries = watchHistoryRepository.getContinueWatching()
+                    if (historyEntries.isNotEmpty()) {
+                        val latestCategories = _uiState.value.categories.toMutableList()
+                        val cwIndex = latestCategories.indexOfFirst { it.id == "continue_watching" }
+                        if (cwIndex >= 0) {
+                            val existingCategory = latestCategories[cwIndex]
+                            val sortedHistory = historyEntries.sortedByDescending {
+                                it.updated_at ?: it.paused_at.orEmpty()
+                            }
+                            val updatedItems = existingCategory.items.map { mediaItem ->
+                                val mediaTypeKey = if (mediaItem.mediaType == MediaType.TV) "tv" else "movie"
+                                val itemSeason = mediaItem.nextEpisode?.seasonNumber
+                                val itemEpisode = mediaItem.nextEpisode?.episodeNumber
+                                val exactKey = "$mediaTypeKey:${mediaItem.id}:${itemSeason ?: -1}:${itemEpisode ?: -1}"
+                                val match = sortedHistory.firstOrNull { entry ->
+                                    "${entry.media_type}:${entry.show_tmdb_id}:${entry.season ?: -1}:${entry.episode ?: -1}" == exactKey
+                                }
+                                if (match != null) {
+                                    val storedProgress = (match.progress * 100f).toInt()
+                                    val derivedProgress = if (storedProgress <= 0 && match.duration_seconds > 0 && match.position_seconds > 0) {
+                                        ((match.position_seconds.toFloat() / match.duration_seconds.toFloat()) * 100f).toInt()
+                                    } else {
+                                        storedProgress
+                                    }
+                                    mediaItem.copy(progress = derivedProgress.coerceIn(0, 100))
+                                } else {
+                                    mediaItem
+                                }
+                            }
+                            latestCategories[cwIndex] = existingCategory.copy(items = updatedItems)
+                            _uiState.value = _uiState.value.copy(categories = latestCategories)
+                        }
+                    }
+                }
+                // Full refresh: re-resolve from all sources (Trakt, local, Supabase).
+                // This runs after the fast path so the progress bar updates immediately,
+                // then the authoritative Trakt data (with correct subtitle/resume label)
+                // replaces it when the fetch completes.
                 refreshContinueWatchingOnly(force = true)
                 runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
             }
