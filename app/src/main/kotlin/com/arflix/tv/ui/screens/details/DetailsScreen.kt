@@ -2960,7 +2960,7 @@ private fun formatEpisodeAirDateLabel(rawDate: String): String? {
         val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         parser.isLenient = false
         val date = parser.parse(value) ?: return value
-        SimpleDateFormat("MMM d, yyyy", Locale.US).format(date)
+        SimpleDateFormat("d MMM yyyy", Locale.US).format(date)
     } catch (_: Exception) {
         value
     }
