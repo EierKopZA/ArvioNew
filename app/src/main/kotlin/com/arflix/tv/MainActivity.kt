@@ -245,8 +245,20 @@ class MainActivity : ComponentActivity() {
             }.collectAsStateWithLifecycle(initialValue = null)
             var skipProfileSelection by remember { mutableStateOf<Boolean?>(null) }
             LaunchedEffect(Unit) {
-                skipProfileSelection =
+                val skipSelection =
                     this@MainActivity.settingsDataStore.data.first()[SKIP_PROFILE_SELECTION_KEY] ?: false
+                if (skipSelection) {
+                    val profiles = profileRepository.get()
+                    val activeProfile = profiles.getActiveProfile()
+                    if (activeProfile == null) {
+                        val fallbackProfile = profiles.getProfiles().maxByOrNull { it.lastUsedAt }
+                            ?: profiles.createDefaultProfileIfNeeded()
+                        if (fallbackProfile != null) {
+                            profiles.setActiveProfile(fallbackProfile.id)
+                        }
+                    }
+                }
+                skipProfileSelection = skipSelection
             }
             val activeProfileId by remember {
                 profileRepository.get().activeProfileId
