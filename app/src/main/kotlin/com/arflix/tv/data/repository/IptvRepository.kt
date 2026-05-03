@@ -471,7 +471,7 @@ class IptvRepository @Inject constructor(
         }
 
         val partsBySpace = trimmed
-            .split(Regex("\\s+"))
+            .split(MULTI_SPACE_REGEX)
             .map { it.trim() }
             .filter { it.isNotBlank() }
         if (partsBySpace.size >= 3) {
@@ -4918,5 +4918,6 @@ class IptvRepository @Inject constructor(
             .appendPattern("XX")
             .optionalEnd()
             .toFormatter(Locale.US)
+
     }
 }
