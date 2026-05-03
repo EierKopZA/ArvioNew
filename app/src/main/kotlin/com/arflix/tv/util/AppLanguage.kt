@@ -74,7 +74,9 @@ fun tr(text: String): String {
         "Subtitle Size",
         "Text size for subtitles",
         "Subtitle Color",
-        "Text color for subtitles" -> R.string.subtitles
+        "Text color for subtitles",
+        "Subtitle Style",
+        "Bold, Normal, or Background style for subtitles" -> R.string.subtitles
         "Audio",
         "Audio Track",
         "Default Audio",
@@ -462,6 +464,8 @@ object AppTranslations {
         "Text size for subtitles" to subtitles,
         "Subtitle Color" to subtitles,
         "Text color for subtitles" to subtitles,
+        "Subtitle Style" to subtitles,
+        "Bold, Normal, or Background style for subtitles" to subtitles,
         "Playback" to playback,
         "Auto-Play Next" to next,
         "Start next episode automatically" to next,
