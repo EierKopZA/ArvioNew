@@ -119,6 +119,7 @@ class CloudSyncRepository @Inject constructor(
         val trailerSoundEnabled: Boolean = false,
         val clockFormat: String = "24h",
         val showBudget: Boolean = true,
+        val spoilerBlurEnabled: Boolean = false,
         val volumeBoostDb: Int = 0,
         val includeSpecials: Boolean = false,
         val dnsProvider: String = "system",
@@ -143,6 +144,8 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "clock_format")
     private fun showBudgetKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "show_budget_on_home")
+    private fun spoilerBlurKeyFor(profileId: String) =
+        profileManager.profileBooleanKeyFor(profileId, "spoiler_blur")
     private fun volumeBoostDbKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "volume_boost_db")
     private fun dnsProviderKeyFor(profileId: String) =
@@ -261,6 +264,7 @@ class CloudSyncRepository @Inject constructor(
                         trailerSoundEnabled = prefs[trailerSoundEnabledKeyFor(profile.id)] ?: false,
                         clockFormat = prefs[clockFormatKeyFor(profile.id)] ?: "24h",
                         showBudget = prefs[showBudgetKeyFor(profile.id)] ?: true,
+                        spoilerBlurEnabled = prefs[spoilerBlurKeyFor(profile.id)] ?: false,
                         volumeBoostDb = prefs[volumeBoostDbKeyFor(profile.id)]?.toIntOrNull()?.coerceIn(0, 15) ?: 0,
                         dnsProvider = prefs[dnsProviderKeyFor(profile.id)] ?: "system",
                         subtitleUsageJson = prefs[subtitleUsageKeyFor(profile.id)] ?: "",
@@ -562,6 +566,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[trailerSoundEnabledKeyFor(profileId)] = state.trailerSoundEnabled
                         prefs[clockFormatKeyFor(profileId)] = state.clockFormat
                         prefs[showBudgetKeyFor(profileId)] = state.showBudget
+                        prefs[spoilerBlurKeyFor(profileId)] = state.spoilerBlurEnabled
                         prefs[volumeBoostDbKeyFor(profileId)] = state.volumeBoostDb.coerceIn(0, 15).toString()
                         prefs[dnsProviderKeyFor(profileId)] = state.dnsProvider.ifBlank { "system" }
                         if (state.subtitleUsageJson.isBlank()) {

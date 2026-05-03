@@ -3119,7 +3119,7 @@ private fun MobileSettingsSubPage(
                         onClick = { viewModel.setShowBudget(!uiState.showBudget) }
                     )
                     MobileSettingsRow(
-                        icon = Icons.Default.BlurOn,
+                        icon = Icons.Default.VisibilityOff,
                         title = stringResource(R.string.spoiler_blur),
                         value = if (uiState.spoilerBlurEnabled) "On" else "Off",
                         isFocused = false,
