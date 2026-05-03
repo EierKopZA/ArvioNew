@@ -1970,17 +1970,18 @@ class StreamRepository @Inject constructor(
 
                 // Extract embedded subtitles from stream
                 val embeddedSubs = stream.subtitles?.mapIndexed { index, sub ->
-                    val normalizedLang = normalizeLanguageCode(sub.lang)
-                    // Use the original lang as fallback instead of hardcoding "en",
-                    // so non-English subs with unparseable codes aren't mislabeled.
-                    val langFallback = sub.lang?.trim()?.lowercase()?.take(2) ?: "und"
-                    Subtitle(
-                        id = sub.id ?: "${addon.id}_stream_sub_$index",
-                        url = sub.url ?: "",
-                        lang = normalizedLang.ifBlank { langFallback },
-                        label = buildSubtitleLabel(normalizedLang.ifBlank { langFallback }, sub.label, addon.name)
-                    )
-                } ?: emptyList()
+                        val normalizedLang = normalizeLanguageCode(sub.lang)
+                        // Use the original lang as fallback instead of hardcoding "en",
+                        // so non-English subs with unparseable codes aren't mislabeled.
+                        val langFallback = sub.lang?.trim()?.lowercase()?.take(2) ?: "und"
+                        Subtitle(
+                            id = sub.id ?: "${addon.id}_stream_sub_$index",
+                            url = sub.url ?: "",
+                            lang = normalizedLang.ifBlank { langFallback },
+                            label = buildSubtitleLabel(normalizedLang.ifBlank { langFallback }, sub.label, addon.name, sub.id),
+                            provider = addon.name
+                        )
+                    } ?: emptyList()
 
                 val torrentName = stream.getTorrentName()
                 val qualityFromTorrent = parseQuality(torrentName)
@@ -2431,15 +2432,16 @@ class StreamRepository @Inject constructor(
                     )
                     val response = streamApi.getSubtitles(url)
                     response.subtitles?.mapIndexed { index, sub ->
-                        val normalizedLang = normalizeLanguageCode(sub.lang)
-                        val langFallback = sub.lang?.trim()?.lowercase()?.take(2) ?: "und"
-                        Subtitle(
-                            id = sub.id ?: "${addon.id}_sub_hint_$index",
-                            url = sub.url ?: "",
-                            lang = normalizedLang.ifBlank { langFallback },
-                            label = buildSubtitleLabel(normalizedLang.ifBlank { langFallback }, sub.label, addon.name)
-                        )
-                    } ?: emptyList()
+                            val normalizedLang = normalizeLanguageCode(sub.lang)
+                            val langFallback = sub.lang?.trim()?.lowercase()?.take(2) ?: "und"
+                            Subtitle(
+                                id = sub.id ?: "${addon.id}_sub_hint_$index",
+                                url = sub.url ?: "",
+                                lang = normalizedLang.ifBlank { langFallback },
+                                label = buildSubtitleLabel(normalizedLang.ifBlank { langFallback }, sub.label, addon.name, sub.id),
+                                provider = addon.name
+                            )
+                        } ?: emptyList()
                 }
             }.getOrDefault(emptyList())
         }
@@ -3085,19 +3087,25 @@ class StreamRepository @Inject constructor(
     private fun buildSubtitleLabel(
         lang: String?,
         rawLabel: String?,
-        provider: String?
+        provider: String?,
+        id: String? = null
     ): String {
         val normalized = normalizeLanguageCode(lang)
         val languageName = languageDisplayName(normalized)
         val label = rawLabel?.trim().orEmpty()
-        val providerName = when {
-            label.isBlank() -> provider?.trim().orEmpty()
-            looksLikeLanguageLabel(label, languageName, normalized) -> provider?.trim().orEmpty()
-            label.startsWith("http", ignoreCase = true) -> provider?.trim().orEmpty()
-            else -> label
+        val displayName = when {
+            id.isNullOrBlank() -> {
+                when {
+                    label.isBlank() -> provider?.trim().orEmpty()
+                    looksLikeLanguageLabel(label, languageName, normalized) -> provider?.trim().orEmpty()
+                    label.startsWith("http", ignoreCase = true) -> provider?.trim().orEmpty()
+                    else -> label
+                }
+            }
+            else -> id.trim()
         }
-        return if (providerName.isNotBlank() && !providerName.equals(languageName, ignoreCase = true)) {
-            "$languageName - $providerName"
+        return if (displayName.isNotBlank() && !displayName.equals(languageName, ignoreCase = true)) {
+            "$languageName - $displayName"
         } else {
             languageName
         }

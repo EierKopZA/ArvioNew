@@ -140,6 +140,7 @@ import com.arflix.tv.ui.components.WaveLoadingDots
 import androidx.compose.ui.text.style.TextOverflow
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.settingsDataStore
+import com.arflix.tv.util.weightedSubtitleScore
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.PurpleDark
@@ -299,7 +300,8 @@ fun PlayerScreen(
     var subtitleLangIndex by remember { mutableIntStateOf(0) }
     var subtitleTrackIndex by remember { mutableIntStateOf(0) }
     var subtitlePanelFocus by remember { mutableIntStateOf(0) } // 0=lang panel, 1=track panel
-    val subtitleGroups = remember(uiState.subtitles, uiState.preferredSubtitleLang, uiState.secondarySubtitleLang) {
+    val subtitleGroups = remember(uiState.subtitles, uiState.preferredSubtitleLang, uiState.secondarySubtitleLang, uiState.selectedStream) {
+        val streamSource = uiState.selectedStream?.source ?: ""
         val primaryName = getFullLanguageName(uiState.preferredSubtitleLang)
         val secondaryName = getFullLanguageName(uiState.secondarySubtitleLang)
         uiState.subtitles.mapIndexed { idx, sub -> Pair(idx, sub) }
@@ -315,7 +317,14 @@ fun PlayerScreen(
                 },
                 { (langName, _) -> langName }
             ))
-            .map { (langName, items) -> Pair(langName, items) }
+            .map { (langName, items) ->
+                Pair(langName, items.sortedWith(
+                    compareByDescending<Pair<Int, Subtitle>> { (_, sub) -> if (sub.isEmbedded) 1 else 0 }
+                        .thenByDescending { (_, sub) -> subtitleMatchScore(streamSource, sub) }
+                        .thenBy { (_, sub) -> sub.groupIndex ?: Int.MAX_VALUE }
+                        .thenBy { (_, sub) -> sub.trackIndex ?: Int.MAX_VALUE }
+                ))
+            }
     }
     // Audio tracks from ExoPlayer
     var audioTracks by remember { mutableStateOf<List<AudioTrackInfo>>(emptyList()) }
@@ -764,6 +773,7 @@ fun PlayerScreen(
                                         url = matched?.url.orEmpty(),
                                         lang = lang,
                                         label = label,
+                                        provider = matched?.provider.orEmpty(),
                                         isEmbedded = !isExternal,
                                         groupIndex = groupIndex,
                                         trackIndex = i
@@ -2408,6 +2418,7 @@ fun PlayerScreen(
                 activeTab = subtitleMenuTab,
                 focusedIndex = subtitleMenuIndex,
                 subtitleGroups = subtitleGroups,
+                streamSource = uiState.selectedStream?.source ?: "",
                 subtitleLangIndex = subtitleLangIndex,
                 subtitleTrackIndex = subtitleTrackIndex,
                 subtitlePanelFocus = subtitlePanelFocus,
@@ -3192,6 +3203,7 @@ private fun SubtitleMenu(
     subtitleLangIndex: Int,
     subtitleTrackIndex: Int,
     subtitlePanelFocus: Int,
+    streamSource: String = "",
     onTabChanged: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (AudioTrackInfo) -> Unit,
@@ -3252,6 +3264,17 @@ private fun SubtitleMenu(
                         text = stringResource(R.string.audio),
                         isSelected = activeTab == 1,
                         onClick = { onTabChanged(1) }
+                    )
+                }
+
+                if (streamSource.isNotBlank()) {
+                    Text(
+                        text = streamSource,
+                        style = ArflixTypography.caption.copy(fontSize = 11.sp),
+                        color = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
                     )
                 }
 
@@ -3322,17 +3345,25 @@ private fun SubtitleMenu(
                                     verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     itemsIndexed(selectedGroup.second) { idx, (_, subtitle) ->
-                                        val trackLabel = subtitle.label.ifBlank { subtitle.lang }
+                                        val score = subtitleMatchScore(streamSource, subtitle)
                                         val langName = getFullLanguageName(subtitle.lang)
-                                        val trackInfo = when {
-                                            subtitle.isEmbedded && subtitle.url.isBlank() -> "Built-in"
-                                            trackLabel.lowercase() == langName.lowercase() -> null
-                                            trackLabel.lowercase().contains(langName.lowercase()) -> null
-                                            else -> langName.ifBlank { null }
+                                        val mainLabel = if (score > 0) "$langName ($score%)" else langName
+                                        val badge: String?
+                                        val detail: String?
+                                        if (subtitle.isEmbedded && subtitle.url.isBlank()) {
+                                            badge = "Built-in"
+                                            detail = null
+                                        } else {
+                                            badge = subtitle.provider.ifBlank { null }
+                                            detail = subtitle.id
+                                                .replace(Regex("^\\[[^]]+]"), "").trim()
+                                                .ifBlank { subtitle.id }
+                                                .ifBlank { null }
                                         }
                                         TrackMenuItem(
-                                            label = trackLabel,
-                                            subtitle = trackInfo,
+                                            label = mainLabel,
+                                            subtitle = badge,
+                                            subtitleDetail = detail,
                                             isSelected = selectedSubtitle?.id == subtitle.id,
                                             isFocused = subtitlePanelFocus == 1 && subtitleTrackIndex == idx,
                                             onClick = { /* D-pad only */ }
@@ -3664,7 +3695,8 @@ private fun TrackMenuItem(
     subtitle: String?,
     isSelected: Boolean,
     isFocused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    subtitleDetail: String? = null
 ) {
     // Only use isFocused from parent (programmatic focus via focusedIndex)
     // Don't track actual D-pad focus to avoid double-focus issues
@@ -3689,8 +3721,18 @@ private fun TrackMenuItem(
             if (subtitle != null) {
                 Text(
                     text = subtitle,
-                    style = ArflixTypography.caption.copy(fontSize = 11.sp),
-                    color = if (isFocused) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.6f)
+                    style = ArflixTypography.caption.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = if (isFocused) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
+                )
+            }
+            if (subtitleDetail != null) {
+                Text(
+                    text = subtitleDetail,
+                    style = ArflixTypography.caption.copy(fontSize = 10.sp),
+                    color = if (isFocused) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.5f)
                 )
             }
         }
@@ -4156,4 +4198,9 @@ private class PlaybackCookieJar : CookieJar {
         }
         return valid
     }
+}
+
+private fun subtitleMatchScore(streamSource: String, subtitle: Subtitle): Int {
+    if (subtitle.isEmbedded) return 100
+    return weightedSubtitleScore(streamSource, subtitle.id)
 }
