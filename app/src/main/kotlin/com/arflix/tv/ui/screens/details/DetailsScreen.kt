@@ -566,6 +566,7 @@ fun DetailsScreen(
                                     }
                                 }
                                 FocusSection.SEASONS -> {
+                                    episodeIndex = 0
                                     viewModel.loadSeason(seasonIndex + 1)
                                 }
                                 FocusSection.CAST -> {
@@ -604,6 +605,7 @@ fun DetailsScreen(
                             contextMenuSeason = seasonIndex + 1
                             showSeasonContextMenu = true
                         } else {
+                            episodeIndex = 0
                             viewModel.loadSeason(seasonIndex + 1)
                         }
                         true
@@ -706,6 +708,8 @@ fun DetailsScreen(
                         }
                     },
                     onSeasonClick = { idx ->
+                        seasonIndex = idx
+                        episodeIndex = 0
                         viewModel.loadSeason(idx + 1)
                     },
                     onEpisodeClick = { idx ->
