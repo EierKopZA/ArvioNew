@@ -170,6 +170,8 @@ data class SettingsUiState(
     val oledBlackBackground: Boolean = false,
     val clockFormat: String = "24h",
     val qualityFilters: List<QualityFilterConfig> = emptyList(),
+    // Spoiler blur — blur unwatched episode card images and hide synopsis
+    val spoilerBlurEnabled: Boolean = false,
     val qualityFilterPresetLabel: String = "OFF",
     // Toast
     val toastMessage: String? = null,
@@ -233,6 +235,7 @@ class SettingsViewModel @Inject constructor(
     private fun trailerSoundEnabledKey() = profileManager.profileBooleanKey("trailer_sound_enabled")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
     private fun clockFormatKey() = profileManager.profileStringKey("clock_format")
+    private fun spoilerBlurKey() = profileManager.profileBooleanKey("spoiler_blur")
     // Stored as a string because ProfileManager has no int helper and we only persist
     // a handful of discrete dB values. Parsed back to Int on read.
     private fun volumeBoostDbKey() = profileManager.profileStringKey("volume_boost_db")
@@ -370,6 +373,7 @@ class SettingsViewModel @Inject constructor(
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
             val trailerSoundEnabled = prefs[trailerSoundEnabledKey()] ?: false
+            val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
@@ -438,6 +442,7 @@ class SettingsViewModel @Inject constructor(
                 secondarySubtitle = secondarySubtitle,
                 dnsProvider = dnsProviderLabel(dnsProviderValue),
                 includeSpecials = includeSpecials,
+                spoilerBlurEnabled = spoilerBlurEnabled,
                 isLoggedIn = isLoggedIn,
                 accountEmail = accountEmail,
                 isTraktAuthenticated = isTrakt,
@@ -948,6 +953,14 @@ class SettingsViewModel @Inject constructor(
             "1080p", "fullhd", "fhd" -> "1080p"
             "4k", "2160p", "uhd" -> "4K"
             else -> "Any"
+        }
+    }
+
+    fun setSpoilerBlurEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[spoilerBlurKey()] = enabled }
+            _uiState.value = _uiState.value.copy(spoilerBlurEnabled = enabled)
+            syncLocalStateToCloud(silent = true)
         }
     }
 

@@ -41,7 +41,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.blur
+import com.arflix.tv.util.settingsDataStore
+import kotlinx.coroutines.flow.first
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -223,6 +227,18 @@ fun DetailsScreen(
     var contextMenuSeason by remember { mutableIntStateOf(1) }
     var seasonSelectDownAtMs by remember { mutableLongStateOf(0L) }
     var ignoreFirstResumeRefresh by remember(mediaType, mediaId, initialSeason, initialEpisode) { mutableStateOf(true) }
+
+    // Spoiler blur setting
+    var spoilerBlurEnabled by remember { mutableStateOf(false) }
+    LaunchedEffect(context, currentProfile) {
+        runCatching {
+            val prefs = context.settingsDataStore.data.first()
+            val profileId = currentProfile?.id
+            if (profileId != null) {
+                spoilerBlurEnabled = prefs[booleanPreferencesKey("profile_${profileId}_spoiler_blur")] ?: false
+            }
+        }
+    }
 
     val focusRequester = remember { FocusRequester() }
 
@@ -1030,6 +1046,7 @@ private fun DetailsContent(
     onSeasonClick: (Int) -> Unit = {},
     onEpisodeClick: (Int) -> Unit = {},
     onCastClick: (Int) -> Unit = {},
+    spoilerBlurEnabled: Boolean = false,
     onSimilarClick: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1393,6 +1410,7 @@ private fun DetailsContent(
                             EpisodeCard(
                                 episode = episode,
                                 isFocused = false,
+                                spoilerBlurEnabled = spoilerBlurEnabled,
                                 onClick = { onEpisodeClick(index) }
                             )
                         }
@@ -2021,6 +2039,7 @@ private fun DetailsContent(
                                     episode = episode,
                                     cardWidth = episodeCardWidth,
                                     isFocused = isFocused && !episodeFixedFocus,
+                                    spoilerBlurEnabled = spoilerBlurEnabled,
                                     onClick = { onEpisodeClick(index) }
                                 )
                             }
@@ -2728,6 +2747,7 @@ private fun EpisodeCard(
     episode: Episode,
     cardWidth: androidx.compose.ui.unit.Dp = 300.dp,
     isFocused: Boolean,
+    spoilerBlurEnabled: Boolean = false,
     onClick: () -> Unit = {}
 ) {
     val aspectRatio = 16f / 9f
@@ -2760,9 +2780,14 @@ private fun EpisodeCard(
     } else {
         null
     }
-    val previewText = episode.overview
-        .trim()
-        .ifEmpty { "No episode synopsis available." }
+    val isSpoilerBlurred = spoilerBlurEnabled && !episode.isWatched
+    val previewText = if (isSpoilerBlurred) {
+        ""
+    } else {
+        episode.overview
+            .trim()
+            .ifEmpty { "No episode synopsis available." }
+    }
     val episodeAirDateLabel = remember(episode.airDate) { formatEpisodeAirDateLabel(episode.airDate) }
     val isEpisodeUnaired = remember(episode.airDate) { isFutureEpisodeAirDate(episode.airDate) }
 
@@ -2796,7 +2821,11 @@ private fun EpisodeCard(
                 model = imageRequest,
                 contentDescription = episode.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (isSpoilerBlurred) Modifier.blur(20.dp) else Modifier
+                    )
             )
 
             Box(

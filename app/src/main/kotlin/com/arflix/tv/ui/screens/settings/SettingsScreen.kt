@@ -319,7 +319,7 @@ fun SettingsScreen(
     }
     val sectionMaxIndex: (String) -> Int = { section ->
         when (section) {
-            "general" -> 24 // 25 rows
+            "general" -> 25 // 26 rows
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "catalogs" -> uiState.catalogs.size // Add + rows
             "stremio" -> stremioAddons.size // rows + add button
@@ -754,9 +754,10 @@ fun SettingsScreen(
                                                 19 -> viewModel.setOledBlackBackground(!uiState.oledBlackBackground)
                                                 20 -> viewModel.cycleClockFormat()
                                                 21 -> viewModel.setShowBudget(!uiState.showBudget)
-                                                22 -> openDnsProviderPicker()
-                                                23 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
-                                                24 -> viewModel.cycleVolumeBoost()
+                                                22 -> viewModel.setSpoilerBlurEnabled(!uiState.spoilerBlurEnabled)
+                                                23 -> openDnsProviderPicker()
+                                                24 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
+                                                25 -> viewModel.cycleVolumeBoost()
                                             }
                                         }
                                         "iptv" -> {
@@ -1084,6 +1085,8 @@ fun SettingsScreen(
                             onOledBlackBackgroundToggle = { viewModel.setOledBlackBackground(it) },
                             onClockFormatClick = { viewModel.cycleClockFormat() },
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
+                            spoilerBlurEnabled = uiState.spoilerBlurEnabled,
+                            onSpoilerBlurToggle = { viewModel.setSpoilerBlurEnabled(it) },
                             showLoadingStats = uiState.showLoadingStats,
                             onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
@@ -3115,6 +3118,14 @@ private fun MobileSettingsSubPage(
                         showDivider = false,
                         onClick = { viewModel.setShowBudget(!uiState.showBudget) }
                     )
+                    MobileSettingsRow(
+                        icon = Icons.Default.BlurOn,
+                        title = stringResource(R.string.spoiler_blur),
+                        value = if (uiState.spoilerBlurEnabled) "On" else "Off",
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.setSpoilerBlurEnabled(!uiState.spoilerBlurEnabled) }
+                    )
                 }
             }
             "Plugins & Extensions" -> {
@@ -3627,6 +3638,7 @@ private fun GeneralSettings(
     oledBlackBackground: Boolean = false,
     clockFormat: String = "24h",
     showBudget: Boolean = true,
+    spoilerBlurEnabled: Boolean = false,
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
@@ -3644,6 +3656,7 @@ private fun GeneralSettings(
     onOledBlackBackgroundToggle: (Boolean) -> Unit = {},
     onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
+    onSpoilerBlurToggle: (Boolean) -> Unit = {},
     showLoadingStats: Boolean = true,
     onShowLoadingStatsToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
@@ -3905,6 +3918,15 @@ private fun GeneralSettings(
             onToggle = onShowBudgetToggle,
             modifier = Modifier.settingsFocusSlot(21)
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsToggleRow(
+            title = stringResource(R.string.spoiler_blur),
+            subtitle = stringResource(R.string.spoiler_blur_desc),
+            isEnabled = spoilerBlurEnabled,
+            isFocused = focusedIndex == 22,
+            onToggle = onSpoilerBlurToggle,
+            modifier = Modifier.settingsFocusSlot(22)
+        )
 
         // ── Network ──
         Spacer(modifier = Modifier.height(24.dp))
@@ -3920,18 +3942,18 @@ private fun GeneralSettings(
             title = stringResource(R.string.dns_provider),
             subtitle = stringResource(R.string.dns_desc),
             value = dnsProvider,
-            isFocused = focusedIndex == 22,
+            isFocused = focusedIndex == 23,
             onClick = onDnsProviderClick,
-            modifier = Modifier.settingsFocusSlot(22)
+            modifier = Modifier.settingsFocusSlot(23)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.show_loading_stats),
             subtitle = stringResource(R.string.show_loading_stats_desc),
             isEnabled = showLoadingStats,
-            isFocused = focusedIndex == 23,
+            isFocused = focusedIndex == 24,
             onToggle = onShowLoadingStatsToggle,
-            modifier = Modifier.settingsFocusSlot(23)
+            modifier = Modifier.settingsFocusSlot(24)
         )
 
         // ── Audio ──
@@ -3951,9 +3973,9 @@ private fun GeneralSettings(
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
             },
-            isFocused = focusedIndex == 24,
+            isFocused = focusedIndex == 25,
             onClick = onVolumeBoostClick,
-            modifier = Modifier.settingsFocusSlot(24)
+            modifier = Modifier.settingsFocusSlot(25)
         )
     }
 }
