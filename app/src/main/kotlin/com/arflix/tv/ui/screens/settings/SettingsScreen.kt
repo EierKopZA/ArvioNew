@@ -319,7 +319,7 @@ fun SettingsScreen(
     }
     val sectionMaxIndex: (String) -> Int = { section ->
         when (section) {
-            "general" -> 22 // 23 rows
+            "general" -> 23 // 24 rows
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "catalogs" -> uiState.catalogs.size // Add + rows
             "stremio" -> stremioAddons.size // rows + add button
@@ -738,23 +738,24 @@ fun SettingsScreen(
                                                 3 -> openAudioLanguagePicker()
                                                 4 -> viewModel.cycleSubtitleSize()
                                                 5 -> viewModel.cycleSubtitleColor()
-                                                6 -> viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage)
-                                                7 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
-                                                8 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
-                                                9 -> viewModel.cycleAutoPlayMinQuality()
-                                                10 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
-                                                11 -> viewModel.setTrailerSoundEnabled(!uiState.trailerSoundEnabled)
-                                                12 -> viewModel.cycleFrameRateMatchingMode()
-                                                13 -> showQualityFiltersModal = true
-                                                14 -> viewModel.toggleCardLayoutMode()
-                                                15 -> openUiModeWarningDialog()
-                                                16 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                17 -> viewModel.setOledBlackBackground(!uiState.oledBlackBackground)
-                                                18 -> viewModel.cycleClockFormat()
-                                                19 -> viewModel.setShowBudget(!uiState.showBudget)
-                                                20 -> openDnsProviderPicker()
-                                                21 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
-                                                22 -> viewModel.cycleVolumeBoost()
+                                                6 -> viewModel.cycleSubtitleStyle()
+                                                7 -> viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage)
+                                                8 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
+                                                9 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
+                                                10 -> viewModel.cycleAutoPlayMinQuality()
+                                                11 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
+                                                12 -> viewModel.setTrailerSoundEnabled(!uiState.trailerSoundEnabled)
+                                                13 -> viewModel.cycleFrameRateMatchingMode()
+                                                14 -> showQualityFiltersModal = true
+                                                15 -> viewModel.toggleCardLayoutMode()
+                                                16 -> openUiModeWarningDialog()
+                                                17 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
+                                                18 -> viewModel.setOledBlackBackground(!uiState.oledBlackBackground)
+                                                19 -> viewModel.cycleClockFormat()
+                                                20 -> viewModel.setShowBudget(!uiState.showBudget)
+                                                21 -> openDnsProviderPicker()
+                                                22 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
+                                                23 -> viewModel.cycleVolumeBoost()
                                             }
                                         }
                                         "iptv" -> {
@@ -1054,6 +1055,7 @@ fun SettingsScreen(
                             contentLanguage = uiState.contentLanguage,
                             subtitleSize = uiState.subtitleSize,
                             subtitleColor = uiState.subtitleColor,
+                            subtitleStyle = uiState.subtitleStyle,
                             deviceModeOverride = uiState.deviceModeOverride,
                             skipProfileSelection = uiState.skipProfileSelection,
                             oledBlackBackground = uiState.oledBlackBackground,
@@ -1085,6 +1087,7 @@ fun SettingsScreen(
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
+                            onSubtitleStyleClick = { viewModel.cycleSubtitleStyle() },
                             filterSubtitlesByLanguage = uiState.filterSubtitlesByLanguage,
                             onFilterSubtitlesByLanguageToggle = { viewModel.setFilterSubtitlesByLanguage(it) },
                             qualityFilterValue = uiState.qualityFilterPresetLabel,
@@ -3037,6 +3040,13 @@ private fun MobileSettingsSubPage(
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Subtitles,
+                        title = stringResource(R.string.subtitle_style),
+                        value = uiState.subtitleStyle,
+                        isFocused = false,
+                        onClick = { viewModel.cycleSubtitleStyle() }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Subtitles,
                         title = stringResource(R.string.filter_subtitles),
                         subtitle = stringResource(R.string.filter_subtitles_desc),
                         value = if (uiState.filterSubtitlesByLanguage) "On" else "Off",
@@ -3600,6 +3610,7 @@ private fun GeneralSettings(
     autoPlayMinQuality: String,
     subtitleSize: String = "Medium",
     subtitleColor: String = "White",
+    subtitleStyle: String = "Bold",
     deviceModeOverride: String = "auto",
     skipProfileSelection: Boolean = false,
     oledBlackBackground: Boolean = false,
@@ -3629,6 +3640,7 @@ private fun GeneralSettings(
     trailerSoundEnabled: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
+    onSubtitleStyleClick: () -> Unit = {},
     filterSubtitlesByLanguage: Boolean = true,
     onFilterSubtitlesByLanguageToggle: (Boolean) -> Unit = {},
     onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
@@ -3705,13 +3717,23 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(5)
         )
         Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.Subtitles,
+            title = stringResource(R.string.subtitle_style),
+            subtitle = stringResource(R.string.subtitle_style_desc),
+            value = subtitleStyle,
+            isFocused = focusedIndex == 6,
+            onClick = onSubtitleStyleClick,
+            modifier = Modifier.settingsFocusSlot(6)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.filter_subtitles),
             subtitle = stringResource(R.string.filter_subtitles_desc),
             isEnabled = filterSubtitlesByLanguage,
-            isFocused = focusedIndex == 6,
+            isFocused = focusedIndex == 7,
             onToggle = onFilterSubtitlesByLanguageToggle,
-            modifier = Modifier.settingsFocusSlot(6)
+            modifier = Modifier.settingsFocusSlot(7)
         )
 
         // ── Playback ──
@@ -3727,18 +3749,18 @@ private fun GeneralSettings(
             title = stringResource(R.string.auto_play_next_title),
             subtitle = stringResource(R.string.auto_play_desc),
             isEnabled = autoPlayNext,
-            isFocused = focusedIndex == 7,
+            isFocused = focusedIndex == 8,
             onToggle = onAutoPlayToggle,
-            modifier = Modifier.settingsFocusSlot(7)
+            modifier = Modifier.settingsFocusSlot(8)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.autoplay),
             subtitle = stringResource(R.string.autoplay_desc),
             isEnabled = autoPlaySingleSource,
-            isFocused = focusedIndex == 8,
+            isFocused = focusedIndex == 9,
             onToggle = onAutoPlaySingleSourceToggle,
-            modifier = Modifier.settingsFocusSlot(8)
+            modifier = Modifier.settingsFocusSlot(9)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3746,27 +3768,27 @@ private fun GeneralSettings(
             title = stringResource(R.string.auto_play_min_quality),
             subtitle = stringResource(R.string.auto_play_quality_desc),
             value = autoPlayMinQuality,
-            isFocused = focusedIndex == 9,
+            isFocused = focusedIndex == 10,
             onClick = onAutoPlayMinQualityClick,
-            modifier = Modifier.settingsFocusSlot(9)
+            modifier = Modifier.settingsFocusSlot(10)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.trailer_auto_play),
             subtitle = stringResource(R.string.trailer_desc),
             isEnabled = trailerAutoPlay,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onToggle = onTrailerAutoPlayToggle,
-            modifier = Modifier.settingsFocusSlot(10)
+            modifier = Modifier.settingsFocusSlot(11)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.trailer_sound),
             subtitle = stringResource(R.string.trailer_sound_desc),
             isEnabled = trailerSoundEnabled,
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onToggle = onTrailerSoundEnabledToggle,
-            modifier = Modifier.settingsFocusSlot(11)
+            modifier = Modifier.settingsFocusSlot(12)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3774,9 +3796,9 @@ private fun GeneralSettings(
             title = stringResource(R.string.frame_rate),
             subtitle = stringResource(R.string.frame_rate_desc),
             value = frameRateMatchingMode,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onClick = onFrameRateMatchingClick,
-            modifier = Modifier.settingsFocusSlot(12)
+            modifier = Modifier.settingsFocusSlot(13)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3784,9 +3806,9 @@ private fun GeneralSettings(
             title = stringResource(R.string.quality_filters),
             subtitle = stringResource(R.string.quality_filters_desc),
             value = qualityFilterValue,
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onQualityFiltersClick,
-            modifier = Modifier.settingsFocusSlot(13)
+            modifier = Modifier.settingsFocusSlot(14)
         )
 
         // ── Interface ──
@@ -3803,9 +3825,9 @@ private fun GeneralSettings(
             title = stringResource(R.string.card_layout),
             subtitle = stringResource(R.string.card_layout_desc),
             value = cardLayoutMode,
-            isFocused = focusedIndex == 14,
+            isFocused = focusedIndex == 15,
             onClick = onCardLayoutToggle,
-            modifier = Modifier.settingsFocusSlot(14)
+            modifier = Modifier.settingsFocusSlot(15)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3818,27 +3840,27 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 15,
+            isFocused = focusedIndex == 16,
             onClick = onDeviceModeClick,
-            modifier = Modifier.settingsFocusSlot(15)
+            modifier = Modifier.settingsFocusSlot(16)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.skip_profile),
             subtitle = stringResource(R.string.skip_profile_desc),
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 16,
+            isFocused = focusedIndex == 17,
             onToggle = onSkipProfileSelectionToggle,
-            modifier = Modifier.settingsFocusSlot(16)
+            modifier = Modifier.settingsFocusSlot(17)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.oled_black_background),
             subtitle = stringResource(R.string.oled_black_background_desc),
             isEnabled = oledBlackBackground,
-            isFocused = focusedIndex == 17,
+            isFocused = focusedIndex == 18,
             onToggle = onOledBlackBackgroundToggle,
-            modifier = Modifier.settingsFocusSlot(17)
+            modifier = Modifier.settingsFocusSlot(18)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3846,9 +3868,9 @@ private fun GeneralSettings(
             title = stringResource(R.string.clock_format),
             subtitle = stringResource(R.string.clock_format_desc),
             value = if (clockFormat == "12h") "12-hour" else "24-hour",
-            isFocused = focusedIndex == 18,
+            isFocused = focusedIndex == 19,
             onClick = onClockFormatClick,
-            modifier = Modifier.settingsFocusSlot(18)
+            modifier = Modifier.settingsFocusSlot(19)
         )
         Spacer(modifier = Modifier.height(10.dp))
         // Home hero controls — issue #72. The movie Budget line on the hero banner
@@ -3857,9 +3879,9 @@ private fun GeneralSettings(
             title = stringResource(R.string.show_budget),
             subtitle = stringResource(R.string.show_budget_desc),
             isEnabled = showBudget,
-            isFocused = focusedIndex == 19,
+            isFocused = focusedIndex == 20,
             onToggle = onShowBudgetToggle,
-            modifier = Modifier.settingsFocusSlot(19)
+            modifier = Modifier.settingsFocusSlot(20)
         )
 
         // ── Network ──
@@ -3876,18 +3898,18 @@ private fun GeneralSettings(
             title = stringResource(R.string.dns_provider),
             subtitle = stringResource(R.string.dns_desc),
             value = dnsProvider,
-            isFocused = focusedIndex == 20,
+            isFocused = focusedIndex == 21,
             onClick = onDnsProviderClick,
-            modifier = Modifier.settingsFocusSlot(20)
+            modifier = Modifier.settingsFocusSlot(21)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = stringResource(R.string.show_loading_stats),
             subtitle = stringResource(R.string.show_loading_stats_desc),
             isEnabled = showLoadingStats,
-            isFocused = focusedIndex == 21,
+            isFocused = focusedIndex == 22,
             onToggle = onShowLoadingStatsToggle,
-            modifier = Modifier.settingsFocusSlot(21)
+            modifier = Modifier.settingsFocusSlot(22)
         )
 
         // ── Audio ──
@@ -3907,9 +3929,9 @@ private fun GeneralSettings(
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
             },
-            isFocused = focusedIndex == 22,
+            isFocused = focusedIndex == 23,
             onClick = onVolumeBoostClick,
-            modifier = Modifier.settingsFocusSlot(22)
+            modifier = Modifier.settingsFocusSlot(23)
         )
     }
 }

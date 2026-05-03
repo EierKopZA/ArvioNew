@@ -62,6 +62,7 @@ data class PlayerUiState(
     val frameRateMatchingMode: String = "Off",
     val subtitleSize: String = "Medium",
     val subtitleColor: String = "White",
+    val subtitleStyle: String = "Bold",
     val error: String? = null,
     val isSetupError: Boolean = false, // true when error is due to missing addons (shows friendly guide instead of red error)
     // Auto-play next episode at end of current one. Mirrors the profile-scoped
@@ -207,6 +208,7 @@ class PlayerViewModel @Inject constructor(
             val prefs = context.settingsDataStore.data.first()
             val subSize = prefs[profileManager.profileStringKey("subtitle_size")] ?: "Medium"
             val subColor = prefs[profileManager.profileStringKey("subtitle_color")] ?: "White"
+            val subStyle = prefs[profileManager.profileStringKey("subtitle_style")] ?: "Bold"
             val autoPlayNext = prefs[autoPlayNextKey()] ?: true
             val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
             val volumeBoostDb = prefs[profileManager.profileStringKey("volume_boost_db")]
@@ -224,6 +226,7 @@ class PlayerViewModel @Inject constructor(
                 frameRateMatchingMode = frameRateMatchingMode,
                 subtitleSize = subSize,
                 subtitleColor = subColor,
+                subtitleStyle = subStyle,
                 autoPlayNext = autoPlayNext,
                 showLoadingStats = showLoadingStats,
                 volumeBoostDb = volumeBoostDb

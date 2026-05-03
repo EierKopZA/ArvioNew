@@ -113,6 +113,7 @@
     <string name="default_audio">Default Audio</string>
     <string name="subtitle_size">Subtitle Size</string>
     <string name="subtitle_color">Subtitle Color</string>
+    <string name="subtitle_style">Subtitle Style</string>
     <string name="subtitle_offset">Subtitle Position</string>
     <string name="auto_play_next_title">Auto-Play Next</string>
     <string name="autoplay">Autoplay</string>
@@ -157,6 +158,7 @@
     <string name="audio_desc">Preferred audio track</string>
     <string name="subtitle_size_desc">Text size for subtitles</string>
     <string name="subtitle_color_desc">Text color for subtitles</string>
+    <string name="subtitle_style_desc">Bold, Normal, or Background style for subtitles</string>
     <string name="subtitle_offset_desc">Vertical position for subtitles</string>
     <string name="auto_play_desc">Start next episode automatically</string>
     <string name="autoplay_desc">Off opens the source picker on Play</string>
