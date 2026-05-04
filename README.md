@@ -50,6 +50,14 @@ ARVIO is a player and organizer for user-configured sources. The repository does
 
 Users are responsible for ensuring that any external services, playlists, addons, or URLs they configure are lawful and that they have the right to access the content they use. Contributors should not submit copyrighted media, credentials, private keys, access tokens, or links intended to enable unauthorized access to content.
 
+## DMCA Disclaimer
+
+ARVIO functions as a media browser and player interface for user-configured sources, similar to how a web browser or media player can open URLs provided by the user.
+
+No movies, series, live TV channels, playlists, or other third-party media are hosted by this repository or by ARVIO. Any content accessed through user-configured sources is hosted by third-party services outside this project.
+
+Users are solely responsible for their usage and must comply with applicable local laws. If you believe content accessed through an external source violates copyright law, contact the actual file host, service provider, or source maintainer. The ARVIO repository and developers cannot remove content hosted by third parties.
+
 ## Build And Run
 
 Requirements:
