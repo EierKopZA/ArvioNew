@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.setCloudstreamHttpClient
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -66,13 +67,31 @@ class RealPluginCompatTest {
         PluginCase(
             label = "AllMovieLand (phisher)",
             url = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds/AllMovieLandProvider.cs3",
-            query = "inception",
-            year = 2010
+            query = "jawan",
+            year = 2023
         ),
         PluginCase(
             label = "AllWish (phisher)",
             url = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds/AllWish.cs3",
             query = "avengers"
+        ),
+        PluginCase(
+            label = "FourKHDHub (phisher)",
+            url = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds/FourKHDHub.cs3",
+            query = "jawan",
+            year = 2023
+        ),
+        PluginCase(
+            label = "HDhub4u (phisher)",
+            url = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds/HDhub4u.cs3",
+            query = "jawan",
+            year = 2023
+        ),
+        PluginCase(
+            label = "UHDmovies (phisher)",
+            url = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds/UHDmoviesProvider.cs3",
+            query = "jawan",
+            year = 2023
         ),
         PluginCase(
             label = "Anichi (hexated)",
@@ -123,6 +142,41 @@ class RealPluginCompatTest {
         // We don't fail the test on per-plugin failure — this is a survey.
         // A real regression would be a compile/load crash that terminates
         // the whole suite; JUnit catching that is enough.
+    }
+
+    @Test
+    fun phisherHdhub4uReturnsPlayableMovieSource() = runBlocking {
+        val runtime = CloudstreamProviderRuntime(context)
+        val artifact = downloadPlugin(
+            url = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds/HDhub4u.cs3",
+            internalName = "phisher_hdhub4u_required"
+        )
+        val addon = Addon(
+            id = "phisher_hdhub4u_required",
+            name = "HDhub4u (phisher)",
+            version = "1",
+            description = "",
+            isInstalled = true,
+            isEnabled = true,
+            type = AddonType.CUSTOM,
+            runtimeKind = RuntimeKind.CLOUDSTREAM,
+            installSource = AddonInstallSource.CLOUDSTREAM_REPOSITORY,
+            installedArtifactPath = artifact.absolutePath
+        )
+
+        val streams = runtime.resolveMovieStreams(
+            addons = listOf(addon),
+            title = "jawan",
+            year = 2023
+        )
+        assertTrue(
+            "Expected Phisher HDhub4u to resolve at least one playable Jawan source",
+            streams.any { stream ->
+                val url = stream.url?.trim().orEmpty()
+                url.startsWith("http://", ignoreCase = true) ||
+                    url.startsWith("https://", ignoreCase = true)
+            }
+        )
     }
 
     private data class SurveyResult(val pass: Boolean, val line: String)
