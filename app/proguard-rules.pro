@@ -179,6 +179,22 @@
 -dontwarn coil.**
 
 # ============================================
+# CloudStream dynamic plugin ABI
+# ============================================
+# Community CloudStream extensions are loaded at runtime from external .cs3
+# dex files. R8 cannot see those references from the app graph, so these
+# package and member names must remain stable in release builds.
+-keep class com.lagradost.cloudstream3.** { *; }
+-keep interface com.lagradost.cloudstream3.** { *; }
+-keep class com.lagradost.nicehttp.** { *; }
+-keep interface com.lagradost.nicehttp.** { *; }
+-keep class org.jsoup.** { *; }
+-keep interface org.jsoup.** { *; }
+-dontwarn com.lagradost.cloudstream3.**
+-dontwarn com.lagradost.nicehttp.**
+-dontwarn org.jsoup.**
+
+# ============================================
 # Warnings to suppress
 # ============================================
 -dontwarn org.slf4j.**
